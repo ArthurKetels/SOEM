@@ -193,7 +193,7 @@ void simpletest(char *ifname)
          {
             if(ec_slave[i].mbx_l > 0)
             {
-               printf("CoE slave handler\r\n");
+//               printf("CoE slave handler\r\n");
                if(!mbxsl) mbxsl = i;
                ec_slave[i].coembxin = (uint8 *)&(mbx[sc++]);
                ecx_setmbxhandlerstate(&ecx_context, i, ECT_MBXH_CYCLIC);
@@ -203,7 +203,7 @@ void simpletest(char *ifname)
          /* request OP state for all slaves */
          ec_writestate(0);
          chk = 40;
-         /* wait for all slaves to reach OP state */
+         /* wait for all slaves to reach OP state */ 
          do
          {
             ec_statecheck(0, EC_STATE_OPERATIONAL, 50000);

@@ -1224,7 +1224,19 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
             context->slavelist[slave].coembxinfull = FALSE;
             wkc = 1;
          }
-         else if (timeout > EC_LOCALDELAY)
+         else if (context->slavelist[slave].soembxinfull == TRUE)
+         {
+            memcpy(mbx, context->slavelist[slave].soembxin, mbxl);
+            context->slavelist[slave].soembxinfull = FALSE;
+            wkc = 1;
+         }
+         else if (context->slavelist[slave].foembxinfull == TRUE)
+         {
+            memcpy(mbx, context->slavelist[slave].foembxin, mbxl);
+            context->slavelist[slave].foembxinfull = FALSE;
+            wkc = 1;
+         }
+         if (!wkc && (timeout > EC_LOCALDELAY))
          {
             osal_usleep(EC_LOCALDELAY);
          }

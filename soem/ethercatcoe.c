@@ -132,7 +132,7 @@ int ecx_SDOread(ecx_contextt *context, uint16 slave, uint16 index, uint8 subinde
 
    ec_clearmbx(&MbxIn);
    /* Empty slave out mailbox if something is in. Timout set to 0 */
- //  wkc = ecx_mbxreceive(context, slave, (ec_mbxbuft *)&MbxIn, 0);
+   wkc = ecx_mbxreceive(context, slave, (ec_mbxbuft *)&MbxIn, 0);
    ec_clearmbx(&MbxOut);
    aSDOp = (ec_SDOt *)&MbxIn;
    SDOp = (ec_SDOt *)&MbxOut;
