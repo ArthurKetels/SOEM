@@ -8,7 +8,6 @@
  *
  * (c)Arthur Ketels 2010 - 2011
  */
-
 #include <stdio.h>
 #include <string.h>
 //#include <Mmsystem.h>
@@ -26,6 +25,8 @@ volatile int wkc;
 volatile int rtcnt;
 boolean inOP;
 uint8 currentgroup = 0;
+ec_mbxbuft mbx[32];
+
 
 /* most basic RT thread for process data, just does IO transfer */
 void CALLBACK RTthread(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1,  DWORD_PTR dw2)
@@ -34,6 +35,7 @@ void CALLBACK RTthread(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1
 
     ec_send_processdata();
     wkc = ec_receive_processdata(EC_TIMEOUTRET);
+    ecx_mbxhandler(&ecx_context, 0, 4);
     rtcnt++;
     /* do RT control stuff here */
 }
@@ -115,8 +117,9 @@ int AEPsetup(uint16 slave)
 
 void simpletest(char *ifname)
 {
-    int i, j, oloop, iloop, wkc_count, chk, slc;
+    int i, j, oloop, iloop, wkc_count, chk, slc, psize;
     UINT mmResult;
+    uint32 prodcode;
 
     needlf = FALSE;
     inOP = FALSE;
@@ -184,6 +187,19 @@ void simpletest(char *ifname)
          /* start RT thread as periodic MM timer */
          mmResult = timeSetEvent(1, 0, RTthread, 0, TIME_PERIODIC);
 
+         int sc = 0;
+         uint16 mbxsl = 0;
+         for(i = 1; i <= ec_slavecount; i++)
+         {
+            if(ec_slave[i].mbx_l > 0)
+            {
+               printf("CoE slave handler\r\n");
+               if(!mbxsl) mbxsl = i;
+               ec_slave[i].coembxin = (uint8 *)&(mbx[sc++]);
+               ecx_setmbxhandlerstate(&ecx_context, i, ECT_MBXH_CYCLIC);
+            }
+         }
+
          /* request OP state for all slaves */
          ec_writestate(0);
          chk = 40;
@@ -219,6 +235,12 @@ void simpletest(char *ifname)
                         }
                         printf(" T:%lld\r",ec_DCtime);
                         needlf = TRUE;
+                    }
+                    prodcode = 0;
+                    psize = sizeof(prodcode);
+                    if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, EC_TIMEOUTRXM) > 0)
+                    {
+                       printf("\nProdcode %d %8.8x\r\n", mbxsl, prodcode);
                     }
                     osal_usleep(50000);
 
@@ -336,8 +358,6 @@ OSAL_THREAD_FUNC ecatcheck(void *lpParam)
         }
         osal_usleep(10000);
     }
-
-    return 0;
 }
 
 char ifbuf[1024];
@@ -345,7 +365,7 @@ char ifbuf[1024];
 int main(int argc, char *argv[])
 {
    ec_adaptert * adapter = NULL;
-   printf("SOEM (Simple Open EtherCAT Master)\nSimple test\n");
+   printf("SOEM (Simple Open EtherCAT Master)\nSimple test 2\n");
 
    if (argc > 1)
    {

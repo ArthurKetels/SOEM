@@ -554,7 +554,7 @@ void slaveinfo(char *ifname)
                                          (ec_slave[cnt].activeports & 0x04) > 0 ,
                                          (ec_slave[cnt].activeports & 0x08) > 0 );
             printf(" Configured address: %4.4x\n", ec_slave[cnt].configadr);
-            printf(" Man: %8.8x ID: %8.8x Rev: %8.8x\n", (int)ec_slave[cnt].eep_man, (int)ec_slave[cnt].eep_id, (int)ec_slave[cnt].eep_rev);
+            printf(" Man: %8.8x ID: %8.8x Rev: %8.8x Ser: %8.8x\n", (int)ec_slave[cnt].eep_man, (int)ec_slave[cnt].eep_id, (int)ec_slave[cnt].eep_rev, (int)ec_slave[cnt].eep_ser);
             for(nSM = 0 ; nSM < EC_MAXSM ; nSM++)
             {
                if(ec_slave[cnt].SM[nSM].StartAddr > 0)
