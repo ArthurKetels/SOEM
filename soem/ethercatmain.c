@@ -923,6 +923,37 @@ void ec_clearmbx(ec_mbxbuft *Mbx)
     memset(Mbx, 0x00, EC_MAXMBX);
 }
 
+int ecx_setmbxhandlerstate(ecx_contextt *context, uint16 slave, int mbxhandlerstate)
+{
+   context->slavelist[slave].mbxhandlerstate = mbxhandlerstate; 
+   return 1;
+}
+
+int ecx_readmbxstatus(ecx_contextt *context, uint16 slave, uint8 *SMstat)
+{
+   int wkc = 0;
+   if(context->slavelist[slave].mbxhandlerstate == ECT_MBXH_CYCLIC)
+   {
+      *SMstat = *(context->slavelist[slave].mbxstatus);
+      wkc = 1;
+   }
+   else
+   {
+      uint16 configadr = context->slavelist[slave].configadr;
+      wkc = ecx_FPRD(context->port, configadr, ECT_REG_SM1STAT, sizeof(uint8), SMstat, EC_TIMEOUTRET);
+   }
+   return wkc;
+}
+
+int ecx_readmbxstatusex(ecx_contextt *context, uint16 slave, uint16 *SMstatex)
+{
+   uint16 hu16;
+   uint16 configadr = context->slavelist[slave].configadr;
+   int wkc = ecx_FPRD(context->port, configadr, ECT_REG_SM1STAT, sizeof(hu16), &hu16, EC_TIMEOUTRET);
+   *SMstatex = etohs(hu16);
+   return wkc;
+}
+
 /** Check if IN mailbox of slave is empty.
  * @param[in] context  = context struct
  * @param[in] slave    = Slave number
@@ -956,6 +987,174 @@ int ecx_mbxempty(ecx_contextt *context, uint16 slave, int timeout)
    }
 
    return 0;
+}
+
+int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
+{
+   int cnt, wkc, wkc2, limitcnt;
+   int maxcnt = context->grouplist[group].mbxstatuslength;
+   ec_mbxbuft mbx;
+   ec_mbxheadert *mbxh;
+   ec_emcyt *EMp;
+   ec_mbxerrort *MBXEp;
+   uint8 SMcontr;
+   
+   limitcnt = 0;
+   for(cnt = 0 ; cnt < maxcnt ; cnt++)
+   {
+      uint16 slave = context->grouplist[group].mbxstatuslookup[cnt];
+      ec_slavet *slaveitem = &context->slavelist[slave];
+      uint16 configadr = slaveitem->configadr;
+      if(slaveitem->mbxhandlerstate == ECT_MBXH_CYCLIC)
+      {
+         /* handle robust mailbox protocol state machine */
+         if(slaveitem->mbxrmpstate)
+         {
+            if(slaveitem->islost) slaveitem->mbxrmpstate = 0;   
+            else
+            {
+               switch(slaveitem->mbxrmpstate)
+               {
+                  case 1 :
+                     if(ecx_readmbxstatusex(context, slave, &(slaveitem->mbxinstateex)) > 0)
+                     {
+                        slaveitem->mbxinstateex ^= 0x0200; /* toggle repeat request */
+                        slaveitem->mbxrmpstate++;
+                     }
+                     break;
+                  case 2 :
+                     uint16 SMstatex = htoes(slaveitem->mbxinstateex);
+                     if(ecx_FPWR(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstatex), &(slaveitem->mbxinstateex), EC_TIMEOUTRET) > 0)
+                     {
+                        slaveitem->mbxrmpstate++;
+                     }
+                     break; 
+                  case 3 :
+                     /* wait for repeat ack */
+                     wkc2 = ecx_FPRD(context->port, configadr, ECT_REG_SM1CONTR, sizeof(SMcontr), &SMcontr, EC_TIMEOUTRET);
+                     if((wkc2 > 0) && ((SMcontr & 0x02) == (HI_BYTE(SMstatex) & 0x02)))
+                     {
+                        slaveitem->mbxrmpstate = 0;
+                     }
+                     break;
+               }
+               if(++limitcnt >= limit) maxcnt = 0;
+            }
+         }
+         /* mbxin full detected and cyclic handler enabled for this slave */
+         else if((*(context->grouplist[group].mbxstatus + cnt) & 0x08) > 0)
+         {
+            uint16 mbxl = slaveitem->mbx_rl;
+            uint16 mbxro = slaveitem->mbx_ro;
+            mbxh = (ec_mbxheadert *)mbx;
+            if(mbxl > 0)
+            {
+               if(++limitcnt >= limit) maxcnt = 0;
+               wkc = ecx_FPRD(context->port, configadr, mbxro, mbxl, mbx, EC_TIMEOUTRET); /* get mailbox */
+               if(wkc > 0)
+               {
+                  if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_ERR) /* Mailbox error response? */
+                  {
+                     MBXEp = (ec_mbxerrort *)mbx;
+                     ecx_mbxerror(context, slave, etohs(MBXEp->Detail));
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_COE) /* CoE response? */
+                  {
+                     EMp = (ec_emcyt *)mbx;
+                     if ((etohs(EMp->CANOpen) >> 12) == 0x01) /* Emergency request? */
+                     {
+                        ecx_mbxemergencyerror(context, slave, etohs(EMp->ErrorCode), EMp->ErrorReg,
+                                 EMp->bData, etohs(EMp->w1), etohs(EMp->w2));
+                     }
+                     else
+                     {
+                        if(slaveitem->coembxin && (slaveitem->coembxinfull == FALSE))
+                        {
+                           memcpy(slaveitem->coembxin, &mbx, mbxl);
+                           slaveitem->coembxinfull = TRUE;
+                        }
+                        else
+                        {
+                           slaveitem->coembxoverrun++;
+                        }
+                     }
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_SOE) /* SoE response? */
+                  {
+                     if(slaveitem->soembxin && (slaveitem->soembxinfull == FALSE))
+                     {
+                        memcpy(slaveitem->soembxin, &mbx, mbxl);
+                        slaveitem->soembxinfull = TRUE;
+                     }
+                     else
+                     {
+                        slaveitem->soembxoverrun++;
+                     }
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_EOE) /* EoE response? */
+                  {
+                     if(slaveitem->eoembxin && (slaveitem->eoembxinfull == FALSE))
+                     {
+                        memcpy(slaveitem->eoembxin, &mbx, mbxl);
+                        slaveitem->eoembxinfull = TRUE;
+                     }
+                     else
+                     {
+                        slaveitem->eoembxoverrun++;
+                     }
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_FOE) /* FoE response? */
+                  {
+                     if(slaveitem->foembxin && (slaveitem->foembxinfull == FALSE))
+                     {
+                        memcpy(slaveitem->foembxin, &mbx, mbxl);
+                        slaveitem->foembxinfull = TRUE;
+                     }
+                     else
+                     {
+                        slaveitem->foembxoverrun++;
+                     }
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_VOE) /* VoE response? */
+                  {
+                     if(slaveitem->voembxin && (slaveitem->voembxinfull == FALSE))
+                     {
+                        memcpy(slaveitem->voembxin, &mbx, mbxl);
+                        slaveitem->voembxinfull = TRUE;
+                     }
+                     else
+                     {
+                        slaveitem->voembxoverrun++;
+                     }
+                  }
+                  else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_AOE) /* AoE response? */
+                  {
+                     if(slaveitem->aoembxin && (slaveitem->aoembxinfull == FALSE))
+                     {
+                        memcpy(slaveitem->aoembxin, &mbx, mbxl);
+                        slaveitem->aoembxinfull = TRUE;
+                     }
+                     else
+                     {
+                        slaveitem->aoembxoverrun++;
+                     }
+                  }
+               }
+               else
+               {
+                  /* mailbox lost, initiate robust mailbox protocol */
+                  slaveitem->mbxrmpstate = 1;
+               }
+            }
+         }
+      } 
+   }
+   return 1;
+}
+
+int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit)
+{
+   return ecx_mbxinhandler(context, group, limit);
 }
 
 /** Write IN mailbox to slave.
@@ -1003,25 +1202,43 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
    uint16 mbxro,mbxl,configadr;
    int wkc=0;
    int wkc2;
-   uint16 SMstat;
+   uint8 SMstat;
+   uint16 SMstatex;
    uint8 SMcontr;
    ec_mbxheadert *mbxh;
    ec_emcyt *EMp;
    ec_mbxerrort *MBXEp;
+   osal_timert timer;
 
    configadr = context->slavelist[slave].configadr;
    mbxl = context->slavelist[slave].mbx_rl;
-   if ((mbxl > 0) && (mbxl <= EC_MAXMBX))
+   if (context->slavelist[slave].mbxhandlerstate == ECT_MBXH_CYCLIC)
    {
-      osal_timert timer;
-
+      osal_timer_start(&timer, timeout);
+      wkc = 0;
+      do
+      {
+         if (context->slavelist[slave].coembxinfull == TRUE)
+         {
+            memcpy(mbx, context->slavelist[slave].coembxin, mbxl);
+            context->slavelist[slave].coembxinfull = FALSE;
+            wkc = 1;
+         }
+         else if (timeout > EC_LOCALDELAY)
+         {
+            osal_usleep(EC_LOCALDELAY);
+         }
+      }
+      while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+   }
+   else if ((mbxl > 0) && (mbxl <= EC_MAXMBX))
+   {
       osal_timer_start(&timer, timeout);
       wkc = 0;
       do /* wait for read mailbox available */
       {
          SMstat = 0;
-         wkc = ecx_FPRD(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstat), &SMstat, EC_TIMEOUTRET);
-         SMstat = etohs(SMstat);
+         wkc = ecx_readmbxstatus(context, slave, &SMstat);
          if (((SMstat & 0x08) == 0) && (timeout > EC_LOCALDELAY))
          {
             osal_usleep(EC_LOCALDELAY);
@@ -1056,23 +1273,26 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
             {
                if (wkc <= 0) /* read mailbox lost */
                {
-                  SMstat ^= 0x0200; /* toggle repeat request */
-                  SMstat = htoes(SMstat);
-                  wkc2 = ecx_FPWR(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstat), &SMstat, EC_TIMEOUTRET);
-                  SMstat = etohs(SMstat);
+                  do /* read extended mailbox status */
+                  {
+                     wkc2 = ecx_readmbxstatusex(context, slave, &SMstatex);
+                  } while ((wkc2 <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+                  SMstatex ^= 0x0200; /* toggle repeat request */
+                  SMstatex = htoes(SMstatex);
+                  wkc2 = ecx_FPWR(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstatex), &SMstatex, EC_TIMEOUTRET);
+                  SMstatex = etohs(SMstatex);
                   do /* wait for toggle ack */
                   {
                      wkc2 = ecx_FPRD(context->port, configadr, ECT_REG_SM1CONTR, sizeof(SMcontr), &SMcontr, EC_TIMEOUTRET);
-                   } while (((wkc2 <= 0) || ((SMcontr & 0x02) != (HI_BYTE(SMstat) & 0x02))) && (osal_timer_is_expired(&timer) == FALSE));
+                   } while (((wkc2 <= 0) || ((SMcontr & 0x02) != (HI_BYTE(SMstatex) & 0x02))) && (osal_timer_is_expired(&timer) == FALSE));
                   do /* wait for read mailbox available */
                   {
-                     wkc2 = ecx_FPRD(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstat), &SMstat, EC_TIMEOUTRET);
-                     SMstat = etohs(SMstat);
-                     if (((SMstat & 0x08) == 0) && (timeout > EC_LOCALDELAY))
+                     wkc2 = ecx_readmbxstatusex(context, slave, &SMstatex);
+                     if (((SMstatex & 0x08) == 0) && (timeout > EC_LOCALDELAY))
                      {
                         osal_usleep(EC_LOCALDELAY);
                      }
-                  } while (((wkc2 <= 0) || ((SMstat & 0x08) == 0)) && (osal_timer_is_expired(&timer) == FALSE));
+                  } while (((wkc2 <= 0) || ((SMstatex & 0x08) == 0)) && (osal_timer_is_expired(&timer) == FALSE));
                }
             }
          } while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE)); /* if WKC<=0 repeat */
