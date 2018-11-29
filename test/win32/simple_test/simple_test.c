@@ -17,6 +17,8 @@
 
 #define EC_TIMEOUTMON 500
 
+#define SMARTWHEELID 0x1705011
+
 char IOmap[4096];
 OSAL_THREAD_HANDLE thread1;
 int expectedWKC;
@@ -31,8 +33,6 @@ ec_mbxbuft mbx[32];
 /* most basic RT thread for process data, just does IO transfer */
 void CALLBACK RTthread(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1,  DWORD_PTR dw2)
 {
-    IOmap[0]++;
-
     ec_send_processdata();
     wkc = ec_receive_processdata(EC_TIMEOUTRET);
     ecx_mbxhandler(&ecx_context, 0, 4);
@@ -120,11 +120,12 @@ void simpletest(char *ifname)
     int i, j, oloop, iloop, wkc_count, chk, slc, psize;
     UINT mmResult;
     uint32 prodcode;
+    uint8 u8dummy;
 
     needlf = FALSE;
     inOP = FALSE;
 
-   printf("Starting simple test\n");
+   printf("Starting simple test 2\n");
 
    /* initialise SOEM, bind socket to ifname */
    if (ec_init(ifname))
@@ -187,16 +188,23 @@ void simpletest(char *ifname)
          /* start RT thread as periodic MM timer */
          mmResult = timeSetEvent(1, 0, RTthread, 0, TIME_PERIODIC);
 
+         ecx_scopeinit(&ecx_context, 0);
          int sc = 0;
          uint16 mbxsl = 0;
          for(i = 1; i <= ec_slavecount; i++)
          {
             if(ec_slave[i].mbx_l > 0)
             {
-//               printf("CoE slave handler\r\n");
                if(!mbxsl) mbxsl = i;
                ec_slave[i].coembxin = (uint8 *)&(mbx[sc++]);
                ecx_setmbxhandlerstate(&ecx_context, i, ECT_MBXH_CYCLIC);
+                 if(ec_slave[i].eep_id == SMARTWHEELID)
+                 {
+                     printf("Found %s at position %d\n", ec_slave[i].name, i);
+                     ecx_scopeenableslave(&ecx_context, i);
+                     uint8 u8val = 0x02;
+                     ec_SDOwrite(i, 0x8f00, 0x01, FALSE, sizeof(u8val), &u8val, EC_TIMEOUTRXM);
+                 }
             }
          }
 
@@ -233,14 +241,19 @@ void simpletest(char *ifname)
                         {
                             printf(" %2.2x", *(ec_slave[0].inputs + j));
                         }
-                        printf(" T:%lld\r",ec_DCtime);
-                        needlf = TRUE;
+                        printf(" T:%lld\r\n",ec_DCtime);
+                        //needlf = TRUE;
                     }
                     prodcode = 0;
                     psize = sizeof(prodcode);
-                    if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, EC_TIMEOUTRXM) > 0)
+                    ecx_BRD(ecx_context.port,i,0,1,&u8dummy,0);
+                    if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, 5000) > 0)
                     {
                        printf("\nProdcode %d %8.8x\r\n", mbxsl, prodcode);
+                    }
+                    else
+                    {
+                       printf("missed %4.4x\r\n",i);
                     }
                     osal_usleep(50000);
 
