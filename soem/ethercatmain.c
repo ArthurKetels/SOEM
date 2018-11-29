@@ -1174,16 +1174,16 @@ int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout
    mbxl = context->slavelist[slave].mbx_l;
    if ((mbxl > 0) && (mbxl <= EC_MAXMBX))
    {
-      if (ecx_mbxempty(context, slave, timeout))
+      mbxwo = context->slavelist[slave].mbx_wo;
+      /* write slave in mailbox 1st try*/
+      wkc = ecx_FPWR(context->port, configadr, mbxwo, mbxl, mbx, EC_TIMEOUTRET3);
+      /* if failed wait for empty mailbox */
+      if ((wkc <= 0) && ecx_mbxempty(context, slave, timeout))
       {
-         mbxwo = context->slavelist[slave].mbx_wo;
-         /* write slave in mailbox */
+         /* retry */
          wkc = ecx_FPWR(context->port, configadr, mbxwo, mbxl, mbx, EC_TIMEOUTRET3);
       }
-      else
-      {
-         wkc = 0;
-      }
+      if(wkc < 0 ) wkc = 0;
    }
 
    return wkc;

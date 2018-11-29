@@ -119,11 +119,6 @@ void ecx_init_context(ecx_contextt *context)
    {
       context->grouplist[lp].logstartaddr = lp << 16; /* default start address per group entry */
    }
-   for(lp = 0; lp < EC_MAXFIFODEPTH; lp++)
-   {
-      context->grouplist[0].mbxfifo.fifobuf[lp] = (uint8 *)&(context->grouplist[0].mbxfifobuffer[lp]);
-   }
-   context->grouplist[0].mbxfifo.txposition = context->grouplist[0].mbxfifo.rxposition = context->grouplist[0].mbxfifo.size = 0;
 }
 
 int ecx_detect_slaves(ecx_contextt *context)
@@ -1165,13 +1160,10 @@ static void ecx_config_create_mbxstatus_mappings(ecx_contextt *context, void *pI
          sizeof(ec_fmmut), &(context->slavelist[slave].FMMU[FMMUc]), EC_TIMEOUTRET3);
 
       position = etohl(context->slavelist[slave].FMMU[FMMUc].LogStart);
-      printf("position1 %d, %d, %d\r\n",position, context->grouplist[group].Obytes, context->grouplist[group].Ibytes);
       context->slavelist[slave].mbxstatus = (uint8 *)(pIOmap) + position;
       position -= context->grouplist[group].Obytes + context->grouplist[group].Ibytes;
       context->grouplist[group].mbxstatuslookup[position] = slave;
-      printf("position2 %d, %d\r\n",position, slave);
       context->grouplist[group].mbxstatuslength++;
-      printf("mbxstl %d, %d\r\n",group, context->grouplist[group].mbxstatuslength);
       FMMUc++;
    }
    context->slavelist[slave].FMMUunused = FMMUc;

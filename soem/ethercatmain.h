@@ -84,16 +84,18 @@ typedef struct PACKED ec_state_status
 } ec_state_status;
 PACKED_END
 
-#define EC_MAXFIFODEPTH 32
+/** mailbox buffer array */
+typedef uint8 ec_mbxbuft[EC_MAXMBX + 1];
 
-typedef struct ec_fifo
+#define VOE_SCOPEMAXCHANNELS    6
+#define MAXSCOPESLAVES          2
+
+typedef struct ec_scope
 {
-   int      txposition, rxposition;
-   int      size;
-   uint8    *fifobuf[EC_MAXFIFODEPTH];
-   uint16   slave[EC_MAXFIFODEPTH];
-   uint16   mbxprotocoll[EC_MAXFIFODEPTH];
-} ec_fifo_t;
+   uint16         scopeslave[MAXSCOPESLAVES];
+   int            scopeslavecnt;
+   ec_mbxbuft     mbxin[MAXSCOPESLAVES];
+} ec_scopet;
 
 #define ECT_MBXPROT_AOE      0x0001
 #define ECT_MBXPROT_EOE      0x0002
@@ -114,9 +116,6 @@ typedef struct ec_fifo
 #define ECT_MBXH_NONE         0
 #define ECT_MBXH_CYCLIC       1
 #define ECT_MBXH_LOST         2
-
-/** mailbox buffer array */
-typedef uint8 ec_mbxbuft[EC_MAXMBX + 1];
 
 /** for list of ethercat slaves detected */
 typedef struct ec_slave
@@ -340,10 +339,8 @@ typedef struct ec_group
    int32            mbxstatuslength;
    /** mailbox status lookup table */
    uint16           mbxstatuslookup[EC_MAXSLAVE];
-   /** mailbox fifo struct for mailbax handler */
-   ec_fifo_t        mbxfifo;
-   /** mailbox fifo buffer for mailbax handler */
-   ec_mbxbuft       mbxfifobuffer[EC_MAXFIFODEPTH];  
+   /** pointer to group scope variables */
+   ec_scopet        *scopevar; 
 } ec_groupt;
 
 /** SII FMMU structure */
