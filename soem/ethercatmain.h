@@ -87,14 +87,41 @@ PACKED_END
 /** mailbox buffer array */
 typedef uint8 ec_mbxbuft[EC_MAXMBX + 1];
 
+#define EC_MBXPOOLSIZE  32
+
+typedef struct
+{
+   int         listhead, listtail, listcount;
+   int         mbxemptylist[EC_MBXPOOLSIZE];
+   osal_mutext *mbxmutex;
+   ec_mbxbuft  mbx[EC_MBXPOOLSIZE];
+} ec_mbxpoolt;
+
 #define VOE_SCOPEMAXCHANNELS    6
-#define MAXSCOPESLAVES          2
+#define EC_MAXSCOPESLAVE        6
+#define EC_SCOPECHANNELS        6
+#define EC_SCOPEBUFFERSIZE      4069
+
+typedef struct
+{
+    int             channels;
+    int             redpos, writepos, counter;
+    double          sampletime;
+    double          fdata[EC_SCOPECHANNELS][EC_SCOPEBUFFERSIZE];
+} ec_ringscopet;
+
+typedef struct
+{
+   uint16         slave;
+   uint16         channel;
+} ec_channelassignt;
 
 typedef struct ec_scope
 {
-   uint16         scopeslave[MAXSCOPESLAVES];
-   int            scopeslavecnt;
-   ec_mbxbuft     mbxin[MAXSCOPESLAVES];
+   uint16            scopeslave[EC_MAXSCOPESLAVE];
+   int               scopeslavecnt;
+   ec_channelassignt channelassign[EC_SCOPECHANNELS];
+   ec_ringscopet     ringscope;
 } ec_scopet;
 
 #define ECT_MBXPROT_AOE      0x0001
@@ -492,6 +519,8 @@ typedef struct ecx_context
    ec_eepromSMt   *eepSM;
    /** internal, FMMU list from eeprom */
    ec_eepromFMMUt *eepFMMU;
+   /** internal, mailbox pool */
+   ec_mbxpoolt    *mbxpool;
    /** registered FoE hook */
    int            (*FOEhook)(uint16 slave, int packetnumber, int datasize);
 } ecx_contextt;
@@ -507,6 +536,7 @@ extern int         ec_slavecount;
 extern ec_groupt   ec_group[EC_MAXGROUP];
 extern boolean     EcatError;
 extern int64       ec_DCtime;
+extern ec_mbxpoolt ec_mbxpool;  
 
 void ec_pusherror(const ec_errort *Ec);
 boolean ec_poperror(ec_errort *Ec);
@@ -589,6 +619,9 @@ int ecx_receive_processdata_group(ecx_contextt *context, uint8 group, int timeou
 int ecx_send_processdata(ecx_contextt *context);
 int ecx_send_overlap_processdata(ecx_contextt *context);
 int ecx_receive_processdata(ecx_contextt *context, int timeout);
+ec_mbxbuft *ecx_getmbx(ecx_contextt *context);
+int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx);
+int ecx_intmbxpool(ecx_contextt *context);
 
 #ifdef __cplusplus
 }

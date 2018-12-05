@@ -27,8 +27,6 @@ volatile int wkc;
 volatile int rtcnt;
 boolean inOP;
 uint8 currentgroup = 0;
-ec_mbxbuft mbx[32];
-
 
 /* most basic RT thread for process data, just does IO transfer */
 void CALLBACK RTthread(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1,  DWORD_PTR dw2)
@@ -120,7 +118,7 @@ void simpletest(char *ifname)
     int i, j, oloop, iloop, wkc_count, chk, slc, psize;
     UINT mmResult;
     uint32 prodcode;
-    uint8 u8dummy;
+ //   uint8 u8dummy;
 
     needlf = FALSE;
     inOP = FALSE;
@@ -196,7 +194,7 @@ void simpletest(char *ifname)
             if(ec_slave[i].mbx_l > 0)
             {
                if(!mbxsl) mbxsl = i;
-               ec_slave[i].coembxin = (uint8 *)&(mbx[sc++]);
+               ec_slave[i].coembxin = (uint8 *)1;
                ecx_setmbxhandlerstate(&ecx_context, i, ECT_MBXH_CYCLIC);
                  if(ec_slave[i].eep_id == SMARTWHEELID)
                  {
@@ -246,14 +244,14 @@ void simpletest(char *ifname)
                     }
                     prodcode = 0;
                     psize = sizeof(prodcode);
-                    ecx_BRD(ecx_context.port,i,0,1,&u8dummy,0);
+//                    ecx_BRD(ecx_context.port,i,0,1,&u8dummy,0);
                     if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, 5000) > 0)
                     {
-                       printf("\nProdcode %d %8.8x\r\n", mbxsl, prodcode);
+                       printf("\nProdcode %d %8.8x %d\r\n", mbxsl, prodcode, ecx_context.mbxpool->listcount);
                     }
                     else
                     {
-                       printf("missed %4.4x\r\n",i);
+                       printf("missed %4.4x %d\r\n",i, ecx_context.mbxpool->listcount);
                     }
                     osal_usleep(50000);
 

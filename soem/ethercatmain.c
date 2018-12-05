@@ -99,6 +99,8 @@ int64                   ec_DCtime;
 ecx_portt               ecx_port;
 ecx_redportt            ecx_redport;
 
+ec_mbxpoolt             ec_mbxpool;
+
 ecx_contextt  ecx_context = {
     &ecx_port,          // .port          =
     &ec_slave[0],       // .slavelist     =
@@ -120,6 +122,7 @@ ecx_contextt  ecx_context = {
     &ec_PDOdesc[0],     // .PDOdesc       =
     &ec_SM,             // .eepSM         =
     &ec_FMMU,           // .eepFMMU       =
+    &ec_mbxpool,        // .mbxpool       =
     NULL                // .FOEhook()
 };
 #endif
@@ -287,6 +290,7 @@ static void ecx_mbxemergencyerror(ecx_contextt *context, uint16 Slave,uint16 Err
  */
 int ecx_init(ecx_contextt *context, const char * ifname)
 {
+   ecx_intmbxpool(context);
    return ecx_setupnic(context->port, ifname, FALSE);
 }
 
@@ -302,6 +306,7 @@ int ecx_init_redundant(ecx_contextt *context, ecx_redportt *redport, const char 
    int rval, zbuf;
    ec_etherheadert *ehp;
 
+   ecx_intmbxpool(context);
    context->port->redport = redport;
    ecx_setupnic(context->port, ifname, FALSE);
    rval = ecx_setupnic(context->port, if2name, TRUE);
@@ -320,8 +325,61 @@ int ecx_init_redundant(ecx_contextt *context, ecx_redportt *redport, const char 
  */
 void ecx_close(ecx_contextt *context)
 {
+   osal_mutex_destroy(context->mbxpool->mbxmutex);
    ecx_closenic(context->port);
-};
+}
+
+ec_mbxbuft *ecx_getmbx(ecx_contextt *context)
+{
+   int retval = 0;
+   ec_mbxbuft *mbx = NULL;
+   ec_mbxpoolt *mbxpool = context->mbxpool;
+   osal_mutex_lock(mbxpool->mbxmutex);
+   if(mbxpool->listcount > 0)
+   {
+      mbx = (ec_mbxbuft *)&(mbxpool->mbx[mbxpool->mbxemptylist[mbxpool->listtail]]);
+//      printf("getmbx item:%d mbx:%p\n\r",mbxpool->mbxemptylist[mbxpool->listtail], mbx);
+      mbxpool->listtail++;
+      if(mbxpool->listtail >= EC_MBXPOOLSIZE) mbxpool->listtail = 0;
+      mbxpool->listcount--;
+      retval = 1;
+   }
+   osal_mutex_unlock(mbxpool->mbxmutex);
+   return mbx;
+}
+
+int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx)
+{
+   ec_mbxpoolt *mbxpool = context->mbxpool;
+   int item = mbx - &(mbxpool->mbx[0]);
+//   printf("dropmbx item:%d mbx:%p\n\r",item, mbx);
+   if((item >= 0) && (item < EC_MBXPOOLSIZE))
+   {
+      osal_mutex_lock(mbxpool->mbxmutex);
+      mbxpool->mbxemptylist[mbxpool->listhead++] = item;
+      if(mbxpool->listhead >= EC_MBXPOOLSIZE) mbxpool->listhead = 0;
+      mbxpool->listcount++;
+      osal_mutex_unlock(mbxpool->mbxmutex);
+      return 1;
+   }
+   return 0;
+}
+
+int ecx_intmbxpool(ecx_contextt *context)
+{
+   int retval = 0;
+   ec_mbxpoolt *mbxpool = context->mbxpool;
+   mbxpool->mbxmutex = (osal_mutext *)osal_mutex_create();
+   for(int item = 0 ; item < EC_MBXPOOLSIZE ; item++)
+   {
+      mbxpool->mbxemptylist[item] = item;
+   }
+   mbxpool->listhead = 0;
+   mbxpool->listtail = 0;
+   mbxpool->listcount = EC_MBXPOOLSIZE;
+ //  printf("intmbxpool mbxp:%p mutex:%p\n\r", mbxpool->mbx[0],  mbxpool->mbxmutex);
+   return retval;
+}
 
 /** Read one byte from slave EEPROM via cache.
  *  If the cache location is empty then a read request is made to the slave.
@@ -993,7 +1051,7 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
 {
    int cnt, wkc, wkc2, limitcnt;
    int maxcnt = context->grouplist[group].mbxstatuslength;
-   ec_mbxbuft mbx;
+   ec_mbxbuft *mbx;
    ec_mbxheadert *mbxh;
    ec_emcyt *EMp;
    ec_mbxerrort *MBXEp;
@@ -1046,13 +1104,13 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
          {
             uint16 mbxl = slaveitem->mbx_rl;
             uint16 mbxro = slaveitem->mbx_ro;
-            mbxh = (ec_mbxheadert *)mbx;
-            if(mbxl > 0)
+            if((mbxl > 0) && (mbx = ecx_getmbx(context)))
             {
                if(++limitcnt >= limit) maxcnt = 0;
                wkc = ecx_FPRD(context->port, configadr, mbxro, mbxl, mbx, EC_TIMEOUTRET); /* get mailbox */
                if(wkc > 0)
                {
+                  mbxh = (ec_mbxheadert *)mbx;
                   if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_ERR) /* Mailbox error response? */
                   {
                      MBXEp = (ec_mbxerrort *)mbx;
@@ -1070,7 +1128,8 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                      {
                         if(slaveitem->coembxin && (slaveitem->coembxinfull == FALSE))
                         {
-                           memcpy(slaveitem->coembxin, &mbx, mbxl);
+                           slaveitem->coembxin = (uint8 *)mbx;
+                           mbx = NULL;
                            slaveitem->coembxinfull = TRUE;
                         }
                         else
@@ -1083,7 +1142,8 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   {
                      if(slaveitem->soembxin && (slaveitem->soembxinfull == FALSE))
                      {
-                        memcpy(slaveitem->soembxin, &mbx, mbxl);
+                        slaveitem->soembxin = (uint8 *)mbx;
+                        mbx = NULL;
                         slaveitem->soembxinfull = TRUE;
                      }
                      else
@@ -1095,7 +1155,8 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   {
                      if(slaveitem->eoembxin && (slaveitem->eoembxinfull == FALSE))
                      {
-                        memcpy(slaveitem->eoembxin, &mbx, mbxl);
+                        slaveitem->eoembxin = (uint8 *)mbx;
+                        mbx = NULL;
                         slaveitem->eoembxinfull = TRUE;
                      }
                      else
@@ -1107,7 +1168,8 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   {
                      if(slaveitem->foembxin && (slaveitem->foembxinfull == FALSE))
                      {
-                        memcpy(slaveitem->foembxin, &mbx, mbxl);
+                        slaveitem->foembxin = (uint8 *)mbx;
+                        mbx = NULL;
                         slaveitem->foembxinfull = TRUE;
                      }
                      else
@@ -1118,8 +1180,9 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   else if ((mbxh->mbxtype & 0x0f) == ECT_MBXT_VOE) /* VoE response? */
                   {
                      if(slaveitem->voembxin && (slaveitem->voembxinfull == FALSE))
-                     {
-                        memcpy(slaveitem->voembxin, &mbx, mbxl);
+                     { 
+                        slaveitem->voembxin = (uint8 *)mbx;
+                        mbx = NULL;
                         slaveitem->voembxinfull = TRUE;
                      }
                      else
@@ -1131,7 +1194,8 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   {
                      if(slaveitem->aoembxin && (slaveitem->aoembxinfull == FALSE))
                      {
-                        memcpy(slaveitem->aoembxin, &mbx, mbxl);
+                        slaveitem->aoembxin = (uint8 *)mbx;
+                        mbx = NULL;
                         slaveitem->aoembxinfull = TRUE;
                      }
                      else
@@ -1145,6 +1209,7 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   /* mailbox lost, initiate robust mailbox protocol */
                   slaveitem->mbxrmpstate = 1;
                }
+               if (mbx) ecx_dropmbx(context, mbx);;   
             }
          }
       } 
@@ -1221,6 +1286,8 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
          if (context->slavelist[slave].coembxinfull == TRUE)
          {
             memcpy(mbx, context->slavelist[slave].coembxin, mbxl);
+            ecx_dropmbx(context, (ec_mbxbuft *)context->slavelist[slave].coembxin);
+            context->slavelist[slave].coembxin = (uint8 *)1;
             context->slavelist[slave].coembxinfull = FALSE;
             wkc = 1;
          }

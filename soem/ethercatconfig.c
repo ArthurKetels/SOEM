@@ -1165,6 +1165,9 @@ static void ecx_config_create_mbxstatus_mappings(ecx_contextt *context, void *pI
       context->grouplist[group].mbxstatuslookup[position] = slave;
       context->grouplist[group].mbxstatuslength++;
       FMMUc++;
+      /* account for MBXSTATUS wkc increment */
+      if(!context->slavelist[slave].Ibytes)
+         context->grouplist[group].inputsWKC++;
    }
    context->slavelist[slave].FMMUunused = FMMUc;
 }
