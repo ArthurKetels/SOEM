@@ -290,7 +290,7 @@ static void ecx_mbxemergencyerror(ecx_contextt *context, uint16 Slave,uint16 Err
  */
 int ecx_init(ecx_contextt *context, const char * ifname)
 {
-   ecx_intmbxpool(context);
+   ecx_initmbxpool(context);
    return ecx_setupnic(context->port, ifname, FALSE);
 }
 
@@ -306,7 +306,7 @@ int ecx_init_redundant(ecx_contextt *context, ecx_redportt *redport, const char 
    int rval, zbuf;
    ec_etherheadert *ehp;
 
-   ecx_intmbxpool(context);
+   ecx_initmbxpool(context);
    context->port->redport = redport;
    ecx_setupnic(context->port, ifname, FALSE);
    rval = ecx_setupnic(context->port, if2name, TRUE);
@@ -365,7 +365,7 @@ int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx)
    return 0;
 }
 
-int ecx_intmbxpool(ecx_contextt *context)
+int ecx_initmbxpool(ecx_contextt *context)
 {
    int retval = 0;
    ec_mbxpoolt *mbxpool = context->mbxpool;
@@ -381,6 +381,126 @@ int ecx_intmbxpool(ecx_contextt *context)
    return retval;
 }
 
+int ecx_initmbxqueue(ecx_contextt *context, uint16 group)
+{
+   int retval = 0;
+   int cnt;
+   ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+   mbxqueue->mbxmutex = (osal_mutext *)osal_mutex_create();
+   mbxqueue->listhead = 0;
+   mbxqueue->listtail = 0;
+   mbxqueue->listcount = 0;
+   for(cnt = 0 ; cnt < EC_MBXPOOLSIZE ; cnt++)
+      mbxqueue->mbxticket[cnt] = -1;
+   return retval;
+}
+
+int ecx_mbxaddqueue(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx)
+{
+   int ticketloc;
+   int ticket = -1;
+   uint8 group = context->slavelist[slave].group;
+   ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+   osal_mutex_lock(mbxqueue->mbxmutex);
+   if((mbxqueue->listcount < EC_MBXPOOLSIZE))
+   {
+      ticketloc = mbxqueue->listhead;
+      while((++ticket < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[ticket] >= 0)) {};
+      mbxqueue->mbxticket[ticket] = ticketloc;
+      mbxqueue->mbxslave[ticketloc] = slave;
+      mbxqueue->mbx[ticketloc] = mbx;
+      mbxqueue->listhead++;
+      if(mbxqueue->listhead >= EC_MBXPOOLSIZE) mbxqueue->listhead = 0;
+      mbxqueue->mbxremove[ticketloc] = 0;
+      mbxqueue->mbxstate[ticketloc] = 1;
+      mbxqueue->listcount++;
+   }
+   osal_mutex_unlock(mbxqueue->mbxmutex);
+   return ticket;
+}
+
+int ecx_mbxdonequeue(ecx_contextt *context, uint16 slave, int ticket)
+{
+   int retval = 0;
+   if((ticket >= 0) && (ticket < EC_MBXPOOLSIZE))
+   {
+      uint8 group = context->slavelist[slave].group;
+      ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+      osal_mutex_lock(mbxqueue->mbxmutex);
+      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] == 3)
+      {
+//         mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] = 4;
+         mbxqueue->mbxremove[mbxqueue->mbxticket[ticket]] = 1;
+         mbxqueue->mbxticket[ticket] = -1;
+         retval = 1;
+      }
+      osal_mutex_unlock(mbxqueue->mbxmutex);
+   }
+   return retval;
+}
+
+int ecx_mbxexpirequeue(ecx_contextt *context, uint16 slave, int ticket)
+{
+   int retval = 0;
+   if((ticket >= 0) && (ticket < EC_MBXPOOLSIZE))
+   {
+      uint8 group = context->slavelist[slave].group;
+      ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+      osal_mutex_lock(mbxqueue->mbxmutex);
+      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] > 0)
+      {
+//         mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] = 4;
+         mbxqueue->mbxremove[mbxqueue->mbxticket[ticket]] = 1;
+         mbxqueue->mbxticket[ticket] = -1;
+         retval = 1;
+      }
+      osal_mutex_unlock(mbxqueue->mbxmutex);
+   }
+   return retval;
+}
+
+int ecx_mbxrotatequeue(ecx_contextt *context, uint16 group, int ticket)
+{
+   int retval = 0;
+   if((ticket >= 0) && (ticket < EC_MBXPOOLSIZE))
+   {
+      ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+      osal_mutex_lock(mbxqueue->mbxmutex);
+      int head = mbxqueue->listhead;
+      int tail = mbxqueue->listtail;
+      mbxqueue->mbxticket[ticket] = head;
+      mbxqueue->mbxremove[head] = mbxqueue->mbxremove[tail];
+      mbxqueue->mbxstate[head] = mbxqueue->mbxstate[tail];
+      mbxqueue->mbxslave[head] = mbxqueue->mbxslave[tail];
+      mbxqueue->mbx[head] = mbxqueue->mbx[tail];
+      mbxqueue->listhead++;
+      if(mbxqueue->listhead >= EC_MBXPOOLSIZE) mbxqueue->listhead = 0;
+      mbxqueue->listtail++;
+      if(mbxqueue->listtail >= EC_MBXPOOLSIZE) mbxqueue->listtail = 0;
+      retval = 1;
+      osal_mutex_unlock(mbxqueue->mbxmutex);
+   }
+   return retval;
+}
+
+ec_mbxbuft *ecx_mbxdropqueue(ecx_contextt *context, uint16 group, int ticketloc)
+{
+   ec_mbxbuft *mbx;
+   ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+//   printf("mbxgetqueue item:%d mbx:%p\n\r",item, mbx);
+   osal_mutex_lock(mbxqueue->mbxmutex);
+   mbxqueue->mbxstate[ticketloc] = 0;
+   mbxqueue->mbxremove[ticketloc] = 0;
+   mbxqueue->mbxslave[ticketloc] = 0;
+   mbx = mbxqueue->mbx[ticketloc];
+   mbxqueue->mbx[ticketloc] = NULL;
+   mbxqueue->listtail++;
+   if(mbxqueue->listtail >= EC_MBXPOOLSIZE) mbxqueue->listtail = 0;
+   mbxqueue->listcount--;
+   osal_mutex_unlock(mbxqueue->mbxmutex);
+   return mbx;
+}
+ 
 /** Read one byte from slave EEPROM via cache.
  *  If the cache location is empty then a read request is made to the slave.
  *  Depending on the slave capabillities the request is 4 or 8 bytes.
@@ -981,10 +1101,14 @@ void ec_clearmbx(ec_mbxbuft *Mbx)
     memset(Mbx, 0x00, EC_MAXMBX);
 }
 
-int ecx_setmbxhandlerstate(ecx_contextt *context, uint16 slave, int mbxhandlerstate)
+int ecx_clearmbxstatus(ecx_contextt *context, uint8 group)
 {
-   context->slavelist[slave].mbxhandlerstate = mbxhandlerstate; 
-   return 1;
+   if(context->grouplist[group].mbxstatus && context->grouplist[group].mbxstatuslength)
+   {
+      memset(context->grouplist[group].mbxstatus, 0x00, context->grouplist[group].mbxstatuslength);
+      return 1;
+   }
+   return 0;
 }
 
 int ecx_readmbxstatus(ecx_contextt *context, uint16 slave, uint8 *SMstat)
@@ -996,7 +1120,7 @@ int ecx_readmbxstatus(ecx_contextt *context, uint16 slave, uint8 *SMstat)
       wkc = 1;
    }
    else
-   {
+   { 
       uint16 configadr = context->slavelist[slave].configadr;
       wkc = ecx_FPRD(context->port, configadr, ECT_REG_SM1STAT, sizeof(uint8), SMstat, EC_TIMEOUTRET);
    }
@@ -1049,7 +1173,7 @@ int ecx_mbxempty(ecx_contextt *context, uint16 slave, int timeout)
 
 int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
 {
-   int cnt, wkc, wkc2, limitcnt;
+   int cnt, cntoffset, wkc, wkc2, limitcnt;
    int maxcnt = context->grouplist[group].mbxstatuslength;
    ec_mbxbuft *mbx;
    ec_mbxheadert *mbxh;
@@ -1058,11 +1182,19 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
    uint8 SMcontr;
    
    limitcnt = 0;
+   int firstmbxpos = context->grouplist[group].lastmbxpos + 1;
+   int maxcntstored = maxcnt;
+   /* iterate over all possible mailbox slaves */
    for(cnt = 0 ; cnt < maxcnt ; cnt++)
    {
-      uint16 slave = context->grouplist[group].mbxstatuslookup[cnt];
+      /* start from last stored slave position to allow fair handling under load */
+      cntoffset =  firstmbxpos + cnt;
+      if(cntoffset >= maxcntstored) cntoffset -= maxcntstored;
+      context->grouplist[group].lastmbxpos = cntoffset;
+      uint16 slave = context->grouplist[group].mbxstatuslookup[cntoffset];
       ec_slavet *slaveitem = &context->slavelist[slave];
       uint16 configadr = slaveitem->configadr;
+      /* cyclic handler enabled for this slave */
       if(slaveitem->mbxhandlerstate == ECT_MBXH_CYCLIC)
       {
          /* handle robust mailbox protocol state machine */
@@ -1096,16 +1228,18 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                      }
                      break;
                }
+               /* keep track of work limit */
                if(++limitcnt >= limit) maxcnt = 0;
             }
          }
-         /* mbxin full detected and cyclic handler enabled for this slave */
-         else if((*(context->grouplist[group].mbxstatus + cnt) & 0x08) > 0)
+         /* mbxin full detected */
+         else if((*(context->grouplist[group].mbxstatus + cntoffset) & 0x08) > 0)
          {
             uint16 mbxl = slaveitem->mbx_rl;
             uint16 mbxro = slaveitem->mbx_ro;
             if((mbxl > 0) && (mbx = ecx_getmbx(context)))
             {
+               /* keep track of work limit */
                if(++limitcnt >= limit) maxcnt = 0;
                wkc = ecx_FPRD(context->port, configadr, mbxro, mbxl, mbx, EC_TIMEOUTRET); /* get mailbox */
                if(wkc > 0)
@@ -1209,17 +1343,77 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   /* mailbox lost, initiate robust mailbox protocol */
                   slaveitem->mbxrmpstate = 1;
                }
-               if (mbx) ecx_dropmbx(context, mbx);;   
+               /* release mailbox to pool if still owner */
+               if (mbx) ecx_dropmbx(context, mbx);  
             }
          }
       } 
    }
-   return 1;
+   return limitcnt;
+}
+
+int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
+{
+   int cnt, wkc;
+   int limitcnt = 0;
+   int ticket, ticketloc, state;
+   uint16 slave, mbxl, mbxwo, configadr;
+   ec_mbxbuft *mbx;
+   ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+   int listcount = mbxqueue->listcount;
+   while((limitcnt <= limit) && listcount) 
+   {
+      listcount--;
+      ticketloc = mbxqueue->listtail;
+      state = mbxqueue->mbxstate[ticketloc];
+      switch(state)
+      {
+         case 1:
+         case 2:
+            slave = mbxqueue->mbxslave[ticketloc];
+            mbx = mbxqueue->mbx[ticketloc];
+            mbxl = context->slavelist[slave].mbx_l;
+            configadr = context->slavelist[slave].configadr;
+            mbxwo = context->slavelist[slave].mbx_wo;
+            limitcnt++;
+            if(context->slavelist[slave].state >= EC_STATE_PRE_OP)
+            {
+               /* write slave in mailbox 1st try*/
+               wkc = ecx_FPWR(context->port, configadr, mbxwo, mbxl, mbx, EC_TIMEOUTRET);
+               if(wkc > 0)
+               {
+                  mbxqueue->mbxstate[ticketloc] = 3; // mbx tx ok
+                  ecx_dropmbx(context, mbx);
+                  mbxqueue->mbx[ticketloc] = NULL;
+               }
+               else
+               {
+                  if(state != 2)
+                     mbxqueue->mbxstate[ticketloc] = 2; // mbx tx fail, retry
+               }
+            }
+         case 3: // mbx tx ok   
+            cnt = 0;
+            while((cnt < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[cnt] != ticketloc)) cnt++;
+            ticket = cnt;
+            ecx_mbxrotatequeue(context, group, ticket);
+            break;
+      }
+      if(mbxqueue->mbxremove[ticketloc])
+      {
+         mbx = ecx_mbxdropqueue(context, group, ticketloc);
+         if(mbx) ecx_dropmbx(context, mbx);
+      }
+   }   
+   return limitcnt;
 }
 
 int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit)
 {
-   return ecx_mbxinhandler(context, group, limit);
+   int limitcnt;
+   limitcnt = ecx_mbxinhandler(context, group, limit);
+   return ecx_mbxouthandler(context, group, (limit - limitcnt));
+ //return limitcnt;
 }
 
 /** Write IN mailbox to slave.
@@ -1231,13 +1425,62 @@ int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit)
  */
 int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout)
 {
-   uint16 mbxwo,mbxl,configadr;
-   int wkc;
+   uint16 mbxwo, mbxl, configadr;
+   int wkc, ticket;
+   osal_timert timer;
+   ec_mbxbuft *txmbx;
+   ec_slavet *slavelist = &(context->slavelist[slave]);
 
    wkc = 0;
-   configadr = context->slavelist[slave].configadr;
-   mbxl = context->slavelist[slave].mbx_l;
-   if ((mbxl > 0) && (mbxl <= EC_MAXMBX))
+   txmbx = NULL;
+   configadr = slavelist->configadr;
+   mbxl = slavelist->mbx_l;
+   if (slavelist->mbxhandlerstate == ECT_MBXH_CYCLIC)
+   {
+ //     printf("TXMBX slave:%d\n\r", slave);
+      osal_timer_start(&timer, timeout);
+      wkc = 0;
+      if((mbxl > 0) && (txmbx = ecx_getmbx(context)))
+      {
+ //        printf("memcpy\n\r");
+         memcpy(txmbx, mbx, mbxl);
+         do
+         {
+ //           printf("addqueue\n\r");
+
+            if((ticket = ecx_mbxaddqueue(context, slave, txmbx)) >= 0)
+            {
+               txmbx = NULL;
+               do
+               {
+                  wkc = ecx_mbxdonequeue(context, slave, ticket);
+//                  if(wkc > 0) printf("donequeue wkc:%d\n\r", wkc);
+                  if (!wkc && (timeout > EC_LOCALDELAY))
+                  {
+                     osal_usleep(EC_LOCALDELAY);
+                  }
+               }
+               while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+               if(wkc <= 0)
+               {
+//                  printf("expirequeue t:%d\n\r", ticket);
+                  if(!ecx_mbxexpirequeue(context, slave, ticket))
+                  {
+//                     printf("expirequeue failed\n\r");
+                  }
+               }
+            }
+            else if ((timeout > EC_LOCALDELAY))
+            {
+               osal_usleep(EC_LOCALDELAY);
+            }
+         }
+         while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+      }
+ //     printf("dropmbx\n\r");
+      if (txmbx) ecx_dropmbx(context, txmbx);;   
+   }
+   else if ((mbxl > 0) && (mbxl <= EC_MAXMBX) && (slavelist->state >= EC_STATE_PRE_OP))
    {
       mbxwo = context->slavelist[slave].mbx_wo;
       /* write slave in mailbox 1st try*/
@@ -1274,33 +1517,34 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
    ec_emcyt *EMp;
    ec_mbxerrort *MBXEp;
    osal_timert timer;
+   ec_slavet *slavelist = &(context->slavelist[slave]);
 
-   configadr = context->slavelist[slave].configadr;
-   mbxl = context->slavelist[slave].mbx_rl;
-   if (context->slavelist[slave].mbxhandlerstate == ECT_MBXH_CYCLIC)
+   configadr = slavelist->configadr;
+   mbxl = slavelist->mbx_rl;
+   if (slavelist->mbxhandlerstate == ECT_MBXH_CYCLIC)
    {
       osal_timer_start(&timer, timeout);
       wkc = 0;
       do
       {
-         if (context->slavelist[slave].coembxinfull == TRUE)
+         if (slavelist->coembxinfull == TRUE)
          {
-            memcpy(mbx, context->slavelist[slave].coembxin, mbxl);
-            ecx_dropmbx(context, (ec_mbxbuft *)context->slavelist[slave].coembxin);
-            context->slavelist[slave].coembxin = (uint8 *)1;
-            context->slavelist[slave].coembxinfull = FALSE;
+            memcpy(mbx, slavelist->coembxin, mbxl);
+            ecx_dropmbx(context, (ec_mbxbuft *)slavelist->coembxin);
+            slavelist->coembxin = (uint8 *)1;
+            slavelist->coembxinfull = FALSE;
             wkc = 1;
          }
-         else if (context->slavelist[slave].soembxinfull == TRUE)
+         else if (slavelist->soembxinfull == TRUE)
          {
-            memcpy(mbx, context->slavelist[slave].soembxin, mbxl);
-            context->slavelist[slave].soembxinfull = FALSE;
+            memcpy(mbx, slavelist->soembxin, mbxl);
+            slavelist->soembxinfull = FALSE;
             wkc = 1;
          }
-         else if (context->slavelist[slave].foembxinfull == TRUE)
+         else if (slavelist->foembxinfull == TRUE)
          {
-            memcpy(mbx, context->slavelist[slave].foembxin, mbxl);
-            context->slavelist[slave].foembxinfull = FALSE;
+            memcpy(mbx, slavelist->foembxin, mbxl);
+            slavelist->foembxinfull = FALSE;
             wkc = 1;
          }
          if (!wkc && (timeout > EC_LOCALDELAY))
@@ -1327,7 +1571,7 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
 
       if ((wkc > 0) && ((SMstat & 0x08) > 0)) /* read mailbox available ? */
       {
-         mbxro = context->slavelist[slave].mbx_ro;
+         mbxro = slavelist->mbx_ro;
          mbxh = (ec_mbxheadert *)mbx;
          do
          {
@@ -1990,6 +2234,8 @@ static int ecx_main_send_processdata(ecx_contextt *context, uint8 group, boolean
       first = TRUE;
    }
 
+   ecx_clearmbxstatus(context, group);
+ 
    /* For overlapping IO map use the biggest */
    if(use_overlap_io == TRUE)
    {
@@ -2254,7 +2500,7 @@ int ecx_receive_processdata_group(ecx_contextt *context, uint8 group, int timeou
 
    ecx_clearindex(context);
 
-   /* if no frames has arrived */
+   /* if no frames have arrived */
    if (valid_wkc == 0)
    {
       return EC_NOFRAME;

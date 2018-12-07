@@ -32,7 +32,7 @@ uint8 currentgroup = 0;
 void CALLBACK RTthread(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1,  DWORD_PTR dw2)
 {
     ec_send_processdata();
-    wkc = ec_receive_processdata(EC_TIMEOUTRET);
+    wkc = ec_receive_processdata(500);
     ecx_mbxhandler(&ecx_context, 0, 4);
     rtcnt++;
     /* do RT control stuff here */
@@ -134,6 +134,7 @@ void simpletest(char *ifname)
 
        if ( ec_config_init(FALSE) > 0 )
        {
+            printf("mbxqueue mutex:%p\n\r",ecx_context.grouplist[0].mbxtxqueue.mbxmutex);
          printf("%d slaves found and configured.\n",ec_slavecount);
 
          if((ec_slavecount > 1))
@@ -156,7 +157,6 @@ void simpletest(char *ifname)
                  }
              }
          }
-
 
          ec_config_map(&IOmap);
 
@@ -195,7 +195,7 @@ void simpletest(char *ifname)
             {
                if(!mbxsl) mbxsl = i;
                ec_slave[i].coembxin = (uint8 *)1;
-               ecx_setmbxhandlerstate(&ecx_context, i, ECT_MBXH_CYCLIC);
+               ec_slave[i].mbxhandlerstate = ECT_MBXH_CYCLIC;
                  if(ec_slave[i].eep_id == SMARTWHEELID)
                  {
                      printf("Found %s at position %d\n", ec_slave[i].name, i);
@@ -245,6 +245,7 @@ void simpletest(char *ifname)
                     prodcode = 0;
                     psize = sizeof(prodcode);
 //                    ecx_BRD(ecx_context.port,i,0,1,&u8dummy,0);
+
                     if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, 5000) > 0)
                     {
                        printf("\nProdcode %d %8.8x %d\r\n", mbxsl, prodcode, ecx_context.mbxpool->listcount);
@@ -253,6 +254,7 @@ void simpletest(char *ifname)
                     {
                        printf("missed %4.4x %d\r\n",i, ecx_context.mbxpool->listcount);
                     }
+                    
                     osal_usleep(50000);
 
             }
@@ -326,11 +328,12 @@ OSAL_THREAD_FUNC ecatcheck(void *lpParam)
                   {
                      printf("WARNING : slave %d is in SAFE_OP, change to OPERATIONAL.\n", slave);
                      ec_slave[slave].state = EC_STATE_OPERATIONAL;
+                     if(ec_slave[slave].mbxhandlerstate == ECT_MBXH_LOST) ec_slave[slave].mbxhandlerstate = ECT_MBXH_CYCLIC;
                      ec_writestate(slave);
                   }
                   else if(ec_slave[slave].state > EC_STATE_NONE)
                   {
-                     if (ec_reconfig_slave(slave, EC_TIMEOUTMON))
+                     if (ec_reconfig_slave(slave, EC_TIMEOUTMON) >= EC_STATE_PRE_OP)
                      {
                         ec_slave[slave].islost = FALSE;
                         printf("MESSAGE : slave %d reconfigured\n",slave);
@@ -343,13 +346,14 @@ OSAL_THREAD_FUNC ecatcheck(void *lpParam)
                      if (ec_slave[slave].state == EC_STATE_NONE)
                      {
                         ec_slave[slave].islost = TRUE;
+                        ec_slave[slave].mbxhandlerstate = ECT_MBXH_LOST;
                         printf("ERROR : slave %d lost\n",slave);
                      }
                   }
                }
                if (ec_slave[slave].islost)
                {
-                  if(ec_slave[slave].state == EC_STATE_NONE)
+                  if(ec_slave[slave].state <= EC_STATE_INIT)
                   {
                      if (ec_recover_slave(slave, EC_TIMEOUTMON))
                      {

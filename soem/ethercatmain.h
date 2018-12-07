@@ -97,6 +97,17 @@ typedef struct
    ec_mbxbuft  mbx[EC_MBXPOOLSIZE];
 } ec_mbxpoolt;
 
+typedef struct
+{
+   int         listhead, listtail, listcount;
+   ec_mbxbuft  *mbx[EC_MBXPOOLSIZE];
+   int         mbxstate[EC_MBXPOOLSIZE];
+   int         mbxremove[EC_MBXPOOLSIZE];
+   int         mbxticket[EC_MBXPOOLSIZE];
+   uint16      mbxslave[EC_MBXPOOLSIZE];
+   osal_mutext *mbxmutex;
+} ec_mbxqueuet;
+
 #define VOE_SCOPEMAXCHANNELS    6
 #define EC_MAXSCOPESLAVE        6
 #define EC_SCOPECHANNELS        6
@@ -366,6 +377,10 @@ typedef struct ec_group
    int32            mbxstatuslength;
    /** mailbox status lookup table */
    uint16           mbxstatuslookup[EC_MAXSLAVE];
+   /** mailbox last handled in mxbhandler */
+   uint16           lastmbxpos;
+   /** mailbox  transmit queue struct */
+   ec_mbxqueuet     mbxtxqueue; 
    /** pointer to group scope variables */
    ec_scopet        *scopevar; 
 } ec_groupt;
@@ -598,7 +613,6 @@ int ecx_siiPDO(ecx_contextt *context, uint16 slave, ec_eepromPDOt* PDO, uint8 t)
 int ecx_readstate(ecx_contextt *context);
 int ecx_writestate(ecx_contextt *context, uint16 slave);
 uint16 ecx_statecheck(ecx_contextt *context, uint16 slave, uint16 reqstate, int timeout);
-int ecx_setmbxhandlerstate(ecx_contextt *context, uint16 slave, int mbxhandlerstate);
 int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit);
 int ecx_mbxempty(ecx_contextt *context, uint16 slave, int timeout);
 int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout);
@@ -621,7 +635,8 @@ int ecx_send_overlap_processdata(ecx_contextt *context);
 int ecx_receive_processdata(ecx_contextt *context, int timeout);
 ec_mbxbuft *ecx_getmbx(ecx_contextt *context);
 int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx);
-int ecx_intmbxpool(ecx_contextt *context);
+int ecx_initmbxpool(ecx_contextt *context);
+int ecx_initmbxqueue(ecx_contextt *context, uint16 group);
 
 #ifdef __cplusplus
 }
