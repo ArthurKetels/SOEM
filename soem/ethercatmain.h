@@ -88,6 +88,7 @@ PACKED_END
 typedef uint8 ec_mbxbuft[EC_MAXMBX + 1];
 
 #define EC_MBXPOOLSIZE  32
+#define EC_MBXINENABLE  (uint8 *)1
 
 typedef struct
 {
@@ -96,6 +97,11 @@ typedef struct
    osal_mutext *mbxmutex;
    ec_mbxbuft  mbx[EC_MBXPOOLSIZE];
 } ec_mbxpoolt;
+
+#define EC_MBXQUEUESTATE_NONE       0
+#define EC_MBXQUEUESTATE_REQ        1
+#define EC_MBXQUEUESTATE_FAIL       2
+#define EC_MBXQUEUESTATE_DONE       3
 
 typedef struct
 {
@@ -616,7 +622,8 @@ uint16 ecx_statecheck(ecx_contextt *context, uint16 slave, uint16 reqstate, int 
 int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit);
 int ecx_mbxempty(ecx_contextt *context, uint16 slave, int timeout);
 int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout);
-int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int timeout);
+//int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int timeout);
+int ecx_mbxreceive2(ecx_contextt *context, uint16 slave, ec_mbxbuft **mbx, int timeout);
 void ecx_esidump(ecx_contextt *context, uint16 slave, uint8 *esibuf);
 uint32 ecx_readeeprom(ecx_contextt *context, uint16 slave, uint16 eeproma, int timeout);
 int ecx_writeeeprom(ecx_contextt *context, uint16 slave, uint16 eeproma, uint16 data, int timeout);
@@ -637,6 +644,7 @@ ec_mbxbuft *ecx_getmbx(ecx_contextt *context);
 int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx);
 int ecx_initmbxpool(ecx_contextt *context);
 int ecx_initmbxqueue(ecx_contextt *context, uint16 group);
+int ecx_slavembxcyclic(ecx_contextt *context, uint16 slave);
 
 #ifdef __cplusplus
 }

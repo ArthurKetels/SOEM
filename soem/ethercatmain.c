@@ -412,7 +412,7 @@ int ecx_mbxaddqueue(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx)
       mbxqueue->listhead++;
       if(mbxqueue->listhead >= EC_MBXPOOLSIZE) mbxqueue->listhead = 0;
       mbxqueue->mbxremove[ticketloc] = 0;
-      mbxqueue->mbxstate[ticketloc] = 1;
+      mbxqueue->mbxstate[ticketloc] = EC_MBXQUEUESTATE_REQ;
       mbxqueue->listcount++;
    }
    osal_mutex_unlock(mbxqueue->mbxmutex);
@@ -427,9 +427,8 @@ int ecx_mbxdonequeue(ecx_contextt *context, uint16 slave, int ticket)
       uint8 group = context->slavelist[slave].group;
       ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
       osal_mutex_lock(mbxqueue->mbxmutex);
-      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] == 3)
+      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] == EC_MBXQUEUESTATE_DONE)
       {
-//         mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] = 4;
          mbxqueue->mbxremove[mbxqueue->mbxticket[ticket]] = 1;
          mbxqueue->mbxticket[ticket] = -1;
          retval = 1;
@@ -447,9 +446,8 @@ int ecx_mbxexpirequeue(ecx_contextt *context, uint16 slave, int ticket)
       uint8 group = context->slavelist[slave].group;
       ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
       osal_mutex_lock(mbxqueue->mbxmutex);
-      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] > 0)
+      if(mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] > EC_MBXQUEUESTATE_NONE)
       {
-//         mbxqueue->mbxstate[mbxqueue->mbxticket[ticket]] = 4;
          mbxqueue->mbxremove[mbxqueue->mbxticket[ticket]] = 1;
          mbxqueue->mbxticket[ticket] = -1;
          retval = 1;
@@ -483,13 +481,24 @@ int ecx_mbxrotatequeue(ecx_contextt *context, uint16 group, int ticket)
    return retval;
 }
 
+int ecx_slavembxcyclic(ecx_contextt *context, uint16 slave)
+{
+   if(context->slavelist[slave].mbxstatus)
+   {
+      context->slavelist[slave].coembxin = EC_MBXINENABLE;
+      context->slavelist[slave].mbxhandlerstate = ECT_MBXH_CYCLIC;
+      return 1;
+   }
+   return 0;
+}
+
 ec_mbxbuft *ecx_mbxdropqueue(ecx_contextt *context, uint16 group, int ticketloc)
 {
    ec_mbxbuft *mbx;
    ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
 //   printf("mbxgetqueue item:%d mbx:%p\n\r",item, mbx);
    osal_mutex_lock(mbxqueue->mbxmutex);
-   mbxqueue->mbxstate[ticketloc] = 0;
+   mbxqueue->mbxstate[ticketloc] = EC_MBXQUEUESTATE_NONE;
    mbxqueue->mbxremove[ticketloc] = 0;
    mbxqueue->mbxslave[ticketloc] = 0;
    mbx = mbxqueue->mbx[ticketloc];
@@ -1344,7 +1353,10 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                   slaveitem->mbxrmpstate = 1;
                }
                /* release mailbox to pool if still owner */
-               if (mbx) ecx_dropmbx(context, mbx);  
+               if (mbx)
+               {
+                  ecx_dropmbx(context, mbx);  
+               }
             }
          }
       } 
@@ -1368,8 +1380,8 @@ int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
       state = mbxqueue->mbxstate[ticketloc];
       switch(state)
       {
-         case 1:
-         case 2:
+         case EC_MBXQUEUESTATE_REQ :
+         case EC_MBXQUEUESTATE_FAIL:
             slave = mbxqueue->mbxslave[ticketloc];
             mbx = mbxqueue->mbx[ticketloc];
             mbxl = context->slavelist[slave].mbx_l;
@@ -1382,17 +1394,17 @@ int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
                wkc = ecx_FPWR(context->port, configadr, mbxwo, mbxl, mbx, EC_TIMEOUTRET);
                if(wkc > 0)
                {
-                  mbxqueue->mbxstate[ticketloc] = 3; // mbx tx ok
+                  mbxqueue->mbxstate[ticketloc] = EC_MBXQUEUESTATE_DONE; // mbx tx ok
                   ecx_dropmbx(context, mbx);
                   mbxqueue->mbx[ticketloc] = NULL;
                }
                else
                {
-                  if(state != 2)
-                     mbxqueue->mbxstate[ticketloc] = 2; // mbx tx fail, retry
+                  if(state != EC_MBXQUEUESTATE_FAIL)
+                     mbxqueue->mbxstate[ticketloc] = EC_MBXQUEUESTATE_FAIL; // mbx tx fail, retry
                }
             }
-         case 3: // mbx tx ok   
+         case EC_MBXQUEUESTATE_DONE: // mbx tx ok   
             cnt = 0;
             while((cnt < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[cnt] != ticketloc)) cnt++;
             ticket = cnt;
@@ -1417,9 +1429,10 @@ int ecx_mbxhandler(ecx_contextt *context, uint8 group, int limit)
 }
 
 /** Write IN mailbox to slave.
+ * Mailbox is fetched from pool by caller, ownership is transferred and dropped back to pool automatically.
  * @param[in]  context    = context struct
  * @param[in]  slave      = Slave number
- * @param[out] mbx        = Mailbox data
+ * @param[out] mbx        = Pointer to mailbox data
  * @param[in]  timeout    = Timeout in us
  * @return Work counter (>0 is success)
  */
@@ -1428,33 +1441,25 @@ int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout
    uint16 mbxwo, mbxl, configadr;
    int wkc, ticket;
    osal_timert timer;
-   ec_mbxbuft *txmbx;
    ec_slavet *slavelist = &(context->slavelist[slave]);
 
    wkc = 0;
-   txmbx = NULL;
    configadr = slavelist->configadr;
    mbxl = slavelist->mbx_l;
    if (slavelist->mbxhandlerstate == ECT_MBXH_CYCLIC)
    {
- //     printf("TXMBX slave:%d\n\r", slave);
       osal_timer_start(&timer, timeout);
       wkc = 0;
-      if((mbxl > 0) && (txmbx = ecx_getmbx(context)))
+      if(mbxl > 0)
       {
- //        printf("memcpy\n\r");
-         memcpy(txmbx, mbx, mbxl);
          do
          {
- //           printf("addqueue\n\r");
-
-            if((ticket = ecx_mbxaddqueue(context, slave, txmbx)) >= 0)
+            if((ticket = ecx_mbxaddqueue(context, slave, mbx)) >= 0)
             {
-               txmbx = NULL;
+               mbx = NULL;
                do
                {
                   wkc = ecx_mbxdonequeue(context, slave, ticket);
-//                  if(wkc > 0) printf("donequeue wkc:%d\n\r", wkc);
                   if (!wkc && (timeout > EC_LOCALDELAY))
                   {
                      osal_usleep(EC_LOCALDELAY);
@@ -1463,7 +1468,6 @@ int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout
                while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
                if(wkc <= 0)
                {
-//                  printf("expirequeue t:%d\n\r", ticket);
                   if(!ecx_mbxexpirequeue(context, slave, ticket))
                   {
 //                     printf("expirequeue failed\n\r");
@@ -1477,8 +1481,6 @@ int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout
          }
          while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
       }
- //     printf("dropmbx\n\r");
-      if (txmbx) ecx_dropmbx(context, txmbx);;   
    }
    else if ((mbxl > 0) && (mbxl <= EC_MAXMBX) && (slavelist->state >= EC_STATE_PRE_OP))
    {
@@ -1493,6 +1495,7 @@ int ecx_mbxsend(ecx_contextt *context, uint16 slave,ec_mbxbuft *mbx, int timeout
       }
       if(wkc < 0 ) wkc = 0;
    }
+   if (mbx) ecx_dropmbx(context, mbx);  
 
    return wkc;
 }
@@ -1531,7 +1534,7 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
          {
             memcpy(mbx, slavelist->coembxin, mbxl);
             ecx_dropmbx(context, (ec_mbxbuft *)slavelist->coembxin);
-            slavelist->coembxin = (uint8 *)1;
+            slavelist->coembxin = EC_MBXINENABLE;
             slavelist->coembxinfull = FALSE;
             wkc = 1;
          }
@@ -1619,6 +1622,153 @@ int ecx_mbxreceive(ecx_contextt *context, uint16 slave, ec_mbxbuft *mbx, int tim
                }
             }
          } while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE)); /* if WKC<=0 repeat */
+      }
+      else /* no read mailbox available */
+      {
+          wkc = 0;
+      }
+   }
+
+   return wkc;
+}
+
+/** Read OUT mailbox from slave.
+ * Supports Mailbox Link Layer with repeat requests.
+ * Mailbox is fetched from pool, caller is owner after return 
+ * and therefore should drop it back to the pool whe finished.
+ * @param[in]  context    = context struct
+ * @param[in]  slave      = Slave number
+ * @param[out] mbx        = Double pointer to mailbox data
+ * @param[in]  timeout    = Timeout in us
+ * @return Work counter (>0 is success)
+ */
+int ecx_mbxreceive2(ecx_contextt *context, uint16 slave, ec_mbxbuft **mbx, int timeout)
+{
+   uint16 mbxro,mbxl,configadr;
+   int wkc=0;
+   int wkc2;
+   uint8 SMstat;
+   uint16 SMstatex;
+   uint8 SMcontr;
+   ec_mbxbuft *mbxin;
+   ec_mbxheadert *mbxh;
+   ec_emcyt *EMp;
+   ec_mbxerrort *MBXEp;
+   osal_timert timer;
+   ec_slavet *slavelist = &(context->slavelist[slave]);
+
+   configadr = slavelist->configadr;
+   mbxl = slavelist->mbx_rl;
+   if (slavelist->mbxhandlerstate == ECT_MBXH_CYCLIC)
+   {
+      osal_timer_start(&timer, timeout);
+      wkc = 0;
+      do
+      {
+         if (slavelist->coembxinfull == TRUE)
+         {
+            *mbx = (ec_mbxbuft *)slavelist->coembxin;
+            slavelist->coembxin = EC_MBXINENABLE;
+            slavelist->coembxinfull = FALSE;
+            wkc = 1;
+         }
+         else if (slavelist->soembxinfull == TRUE)
+         {
+            *mbx = (ec_mbxbuft *)slavelist->soembxin;
+            slavelist->soembxin = EC_MBXINENABLE;
+            slavelist->soembxinfull = FALSE;
+            wkc = 1;
+         }
+         else if (slavelist->foembxinfull == TRUE)
+         {
+            *mbx = (ec_mbxbuft *)slavelist->foembxin;
+            slavelist->foembxin = EC_MBXINENABLE;
+            slavelist->foembxinfull = FALSE;
+            wkc = 1;
+         }
+         if (!wkc && (timeout > EC_LOCALDELAY))
+         {
+            osal_usleep(EC_LOCALDELAY);
+         }
+      }
+      while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+   }
+   else if ((mbxl > 0) && (mbxl <= EC_MAXMBX))
+   {
+      osal_timer_start(&timer, timeout);
+      wkc = 0;
+      do /* wait for read mailbox available */
+      {
+         SMstat = 0;
+         wkc = ecx_readmbxstatus(context, slave, &SMstat);
+         if (((SMstat & 0x08) == 0) && (timeout > EC_LOCALDELAY))
+         {
+            osal_usleep(EC_LOCALDELAY);
+         }
+      }
+      while (((wkc <= 0) || ((SMstat & 0x08) == 0)) && (osal_timer_is_expired(&timer) == FALSE));
+
+      if ((wkc > 0) && ((SMstat & 0x08) > 0)) /* read mailbox available ? */
+      {
+         mbxro = slavelist->mbx_ro;
+         mbxin = ecx_getmbx(context);
+         mbxh = (ec_mbxheadert *)mbxin;
+         do
+         {
+            wkc = ecx_FPRD(context->port, configadr, mbxro, mbxl, mbxin, EC_TIMEOUTRET); /* get mailbox */
+            if ((wkc > 0) && ((mbxh->mbxtype & 0x0f) == 0x00)) /* Mailbox error response? */
+            {
+               MBXEp = (ec_mbxerrort *)mbxin;
+               ecx_mbxerror(context, slave, etohs(MBXEp->Detail));
+               ecx_dropmbx(context, mbxin);
+               mbxin = NULL;
+               wkc = 0; /* prevent emergency to cascade up, it is already handled. */
+            }
+            else if ((wkc > 0) && ((mbxh->mbxtype & 0x0f) == 0x03)) /* CoE response? */
+            {
+               EMp = (ec_emcyt *)mbx;
+               if ((etohs(EMp->CANOpen) >> 12) == 0x01) /* Emergency request? */
+               {
+                  ecx_mbxemergencyerror(context, slave, etohs(EMp->ErrorCode), EMp->ErrorReg,
+                          EMp->bData, etohs(EMp->w1), etohs(EMp->w2));
+                  ecx_dropmbx(context, mbxin);
+                  mbxin = NULL;
+                  wkc = 0; /* prevent emergency to cascade up, it is already handled. */
+               }
+               else 
+               {
+                  *mbx = mbxin;
+                  mbxin = NULL;
+               }
+            }
+            else
+            {
+               if (wkc <= 0) /* read mailbox lost */
+               {
+                  do /* read extended mailbox status */
+                  {
+                     wkc2 = ecx_readmbxstatusex(context, slave, &SMstatex);
+                  } while ((wkc2 <= 0) && (osal_timer_is_expired(&timer) == FALSE));
+                  SMstatex ^= 0x0200; /* toggle repeat request */
+                  SMstatex = htoes(SMstatex);
+                  wkc2 = ecx_FPWR(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstatex), &SMstatex, EC_TIMEOUTRET);
+                  SMstatex = etohs(SMstatex);
+                  do /* wait for toggle ack */
+                  {
+                     wkc2 = ecx_FPRD(context->port, configadr, ECT_REG_SM1CONTR, sizeof(SMcontr), &SMcontr, EC_TIMEOUTRET);
+                   } while (((wkc2 <= 0) || ((SMcontr & 0x02) != (HI_BYTE(SMstatex) & 0x02))) && (osal_timer_is_expired(&timer) == FALSE));
+                  do /* wait for read mailbox available */
+                  {
+                     wkc2 = ecx_readmbxstatusex(context, slave, &SMstatex);
+                     if (((SMstatex & 0x08) == 0) && (timeout > EC_LOCALDELAY))
+                     {
+                        osal_usleep(EC_LOCALDELAY);
+                     }
+                  } while (((wkc2 <= 0) || ((SMstatex & 0x08) == 0)) && (osal_timer_is_expired(&timer) == FALSE));
+               }
+            }
+         } while ((wkc <= 0) && (osal_timer_is_expired(&timer) == FALSE)); /* if WKC<=0 repeat */
+         if(mbxin) ecx_dropmbx(context, mbxin);
       }
       else /* no read mailbox available */
       {

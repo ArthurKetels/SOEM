@@ -194,15 +194,14 @@ void simpletest(char *ifname)
             if(ec_slave[i].mbx_l > 0)
             {
                if(!mbxsl) mbxsl = i;
-               ec_slave[i].coembxin = (uint8 *)1;
-               ec_slave[i].mbxhandlerstate = ECT_MBXH_CYCLIC;
-                 if(ec_slave[i].eep_id == SMARTWHEELID)
-                 {
-                     printf("Found %s at position %d\n", ec_slave[i].name, i);
-                     ecx_scopeenableslave(&ecx_context, i);
-                     uint8 u8val = 0x02;
-                     ec_SDOwrite(i, 0x8f00, 0x01, FALSE, sizeof(u8val), &u8val, EC_TIMEOUTRXM);
-                 }
+               ecx_slavembxcyclic(&ecx_context, i);
+               if(ec_slave[i].eep_id == SMARTWHEELID)
+               {
+                  printf("Found %s at position %d\n", ec_slave[i].name, i);
+                  ecx_slavescopeenable(&ecx_context, i);
+                  uint8 u8val = 0x02;
+                  ec_SDOwrite(i, 0x8f00, 0x01, FALSE, sizeof(u8val), &u8val, EC_TIMEOUTRXM);
+               }
             }
          }
 
@@ -210,7 +209,7 @@ void simpletest(char *ifname)
          ec_writestate(0);
          chk = 40;
          /* wait for all slaves to reach OP state */ 
-         do
+         do 
          {
             ec_statecheck(0, EC_STATE_OPERATIONAL, 50000);
          }
@@ -225,7 +224,7 @@ void simpletest(char *ifname)
             /* cyclic loop, reads data from RT thread */
             for(i = 1; i <= 500; i++)
             {
-                    if(wkc >= expectedWKC)
+                //    if(wkc >= expectedWKC)
                     {
                         printf("Processdata cycle %4d, WKC %d , O:", rtcnt, wkc);
 
@@ -248,7 +247,7 @@ void simpletest(char *ifname)
 
                     if(ecx_SDOread(&ecx_context, mbxsl, 0x1018, 0x02, FALSE, &psize, &prodcode, 5000) > 0)
                     {
-                       printf("\nProdcode %d %8.8x %d\r\n", mbxsl, prodcode, ecx_context.mbxpool->listcount);
+                       printf("Prodcode %d %8.8x %d\r\n", mbxsl, prodcode, ecx_context.mbxpool->listcount);
                     }
                     else
                     {
@@ -347,6 +346,12 @@ OSAL_THREAD_FUNC ecatcheck(void *lpParam)
                      {
                         ec_slave[slave].islost = TRUE;
                         ec_slave[slave].mbxhandlerstate = ECT_MBXH_LOST;
+                        /* zero input data for this slave */
+                        if(ec_slave[slave].Ibytes)
+                        {
+                           memset(ec_slave[slave].inputs, 0x00, ec_slave[slave].Ibytes);
+                           printf("zero inputs %p %d\n\r", ec_slave[slave].inputs, ec_slave[slave].Ibytes);
+                        }
                         printf("ERROR : slave %d lost\n",slave);
                      }
                   }
