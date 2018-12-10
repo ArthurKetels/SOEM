@@ -198,7 +198,7 @@ void simpletest(char *ifname)
                if(ec_slave[i].eep_id == SMARTWHEELID)
                {
                   printf("Found %s at position %d\n", ec_slave[i].name, i);
-                  ecx_slavescopeenable(&ecx_context, i);
+                  ecx_scopeenableslave(&ecx_context, i);
                   uint8 u8val = 0x02;
                   ec_SDOwrite(i, 0x8f00, 0x01, FALSE, sizeof(u8val), &u8val, EC_TIMEOUTRXM);
                }
