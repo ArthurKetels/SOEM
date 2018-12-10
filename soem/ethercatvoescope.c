@@ -38,7 +38,7 @@ int ecx_scopeinit(ecx_contextt *context, uint8 group)
     if(!context->grouplist[group].scopevar)
     {
         ec_scopet *scopevar;
-        if(scopevar = osal_malloc(sizeof(ec_scopet)))
+        if((scopevar = osal_malloc(sizeof(ec_scopet))))
         {
             context->grouplist[group].scopevar = scopevar;
             scopevar->scopeslavecnt = 0;
@@ -67,12 +67,12 @@ int ecx_scopeenableslave(ecx_contextt *context, uint16 slave)
     scopevar = context->grouplist[group].scopevar;
     if(slaveitem->coembxin)
     {
-        if(scopevar->scopeslavecnt < MAXSCOPESLAVES)
+        if(scopevar->scopeslavecnt < EC_MAXSCOPESLAVE)
             scopevar->scopeslavecnt++;
         scopevar->scopeslave[scopevar->scopeslavecnt - 1] = slave;
         slaveitem->voembxinfull = FALSE;
         slaveitem->voembxoverrun = 0;
-        slaveitem->voembxin = (uint8 *)scopevar->mbxin[scopevar->scopeslavecnt -1];
+      //  slaveitem->voembxin = (uint8 *)scopevar->mbxin[scopevar->scopeslavecnt -1];
         slaveitem->mbxhandlerstate = ECT_MBXH_CYCLIC;
         return 1;
     }
@@ -92,6 +92,12 @@ int ecx_scopedisableslave(ecx_contextt *context, uint16 slave)
 
 int ecx_scopembxhandler(ecx_contextt *context)
 {
+    ec_slavet *slaveitem = &context->slavelist[0];
+    if(slaveitem->voembxin)
+    {
+        slaveitem->voembxin = NULL;
+        return 1;
+    }
     return 0;
 }
 /*

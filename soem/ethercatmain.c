@@ -331,7 +331,6 @@ void ecx_close(ecx_contextt *context)
 
 ec_mbxbuft *ecx_getmbx(ecx_contextt *context)
 {
-   int retval = 0;
    ec_mbxbuft *mbx = NULL;
    ec_mbxpoolt *mbxpool = context->mbxpool;
    osal_mutex_lock(mbxpool->mbxmutex);
@@ -342,7 +341,6 @@ ec_mbxbuft *ecx_getmbx(ecx_contextt *context)
       mbxpool->listtail++;
       if(mbxpool->listtail >= EC_MBXPOOLSIZE) mbxpool->listtail = 0;
       mbxpool->listcount--;
-      retval = 1;
    }
    osal_mutex_unlock(mbxpool->mbxmutex);
    return mbx;
@@ -1189,6 +1187,7 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
    ec_emcyt *EMp;
    ec_mbxerrort *MBXEp;
    uint8 SMcontr;
+   uint16 SMstatex;
    
    limitcnt = 0;
    int firstmbxpos = context->grouplist[group].lastmbxpos + 1;
@@ -1222,7 +1221,7 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
                      }
                      break;
                   case 2 :
-                     uint16 SMstatex = htoes(slaveitem->mbxinstateex);
+                     SMstatex = htoes(slaveitem->mbxinstateex);
                      if(ecx_FPWR(context->port, configadr, ECT_REG_SM1STAT, sizeof(SMstatex), &(slaveitem->mbxinstateex), EC_TIMEOUTRET) > 0)
                      {
                         slaveitem->mbxrmpstate++;
@@ -1360,7 +1359,7 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
             }
          }
       } 
-   }
+   } 
    return limitcnt;
 }
 
@@ -1404,6 +1403,7 @@ int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
                      mbxqueue->mbxstate[ticketloc] = EC_MBXQUEUESTATE_FAIL; // mbx tx fail, retry
                }
             }
+            /* fall through */
          case EC_MBXQUEUESTATE_DONE: // mbx tx ok   
             cnt = 0;
             while((cnt < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[cnt] != ticketloc)) cnt++;
