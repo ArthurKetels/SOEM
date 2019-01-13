@@ -17,6 +17,8 @@
 #include "ethercatmain.h"
 #include "ethercatvoescope.h"
 
+#define VOE_SCOPE_BUFSIZE       (MBXSIZE - sizeof(_MBXh) - VOE_SCOPEMAXCHANNELS - 12)
+
 /** VoE Scope mailbox structure */
 PACKED_BEGIN
 typedef struct PACKED
@@ -31,41 +33,54 @@ typedef struct PACKED
 } ec_VoEscopet;
 PACKED_END
 
-OSAL_THREAD_HANDLE ecx_scopethreadh;
-
-int ecx_scopeinit(ecx_contextt *context, uint8 group)
+/** VoE Scopeinfo mailbox structure */
+PACKED_BEGIN
+typedef struct PACKED
 {
-    if(!context->grouplist[group].scopevar)
+   ec_mbxheadert    MbxHeader;
+   uint8_t          voe_scopetype;
+   uint8_t          version;
+   uint8_t          channels;
+   uint8_t          datatype[VOE_SCOPEMAXCHANNELS];
+   double           sampletime;
+   char             names[EC_SCOPENAMELENGTH * VOE_SCOPEMAXCHANNELS];
+} ec_VoEscopeinfot;
+PACKED_END
+
+ec_scopet               *ec_scopevar;
+OSAL_THREAD_HANDLE      ecx_scopethreadh;
+
+int ecx_scopeinit(ec_scopet **p_scopevar)
+{
+    if(!*p_scopevar)
     {
         ec_scopet *scopevar;
         if((scopevar = osal_malloc(sizeof(ec_scopet))))
         {
-            context->grouplist[group].scopevar = scopevar;
-            scopevar->scopeslavecnt = 0;
+            *p_scopevar = scopevar;
+            *p_scopevar->scopeslavecnt = 0;
         }
         return 1;
     }
     return 0;
 }
 
-int ecx_scopeclose(ecx_contextt *context, uint8 group)
+int ecx_scopeclose(ec_scopet **p_scopevar)
 {
-    if(context->grouplist[group].scopevar)
+    if(*p_scopevar)
     {
-        osal_free(context->grouplist[group].scopevar);
-        context->grouplist[group].scopevar = NULL;
+        osal_free(*p_scopevar);
+        *p_scopevar = NULL;
         return 1;
     }
     return 0;
 }
 
-int ecx_scopeenableslave(ecx_contextt *context, uint16 slave)
+int ecx_scopeenableslave(ecx_contextt *context, uint16 slave, ec_scopet *scopevar)
 {
     ec_slavet *slaveitem = &context->slavelist[slave];
     uint8 group = slaveitem->group;
-    ec_scopet *scopevar;
-    scopevar = context->grouplist[group].scopevar;
-    if(slaveitem->coembxin)
+    if(slaveitem->coembxin && scopevar)
     {
         if(scopevar->scopeslavecnt < EC_MAXSCOPESLAVE)
             scopevar->scopeslavecnt++;

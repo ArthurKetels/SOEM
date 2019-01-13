@@ -455,27 +455,38 @@ int ecx_mbxexpirequeue(ecx_contextt *context, uint16 slave, int ticket)
    return retval;
 }
 
-int ecx_mbxrotatequeue(ecx_contextt *context, uint16 group, int ticket)
+int ecx_mbxrotatequeue(ecx_contextt *context, uint16 group, int ticketloc)
 {
    int retval = 0;
-   if((ticket >= 0) && (ticket < EC_MBXPOOLSIZE))
+   int cnt = 0;
+   int ticket;
+   ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
+   osal_mutex_lock(mbxqueue->mbxmutex);
+   int head = mbxqueue->listhead;
+   int tail = mbxqueue->listtail;
+   if(head != tail)
    {
-      ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
-      osal_mutex_lock(mbxqueue->mbxmutex);
-      int head = mbxqueue->listhead;
-      int tail = mbxqueue->listtail;
-      mbxqueue->mbxticket[ticket] = head;
-      mbxqueue->mbxremove[head] = mbxqueue->mbxremove[tail];
-      mbxqueue->mbxstate[head] = mbxqueue->mbxstate[tail];
-      mbxqueue->mbxslave[head] = mbxqueue->mbxslave[tail];
-      mbxqueue->mbx[head] = mbxqueue->mbx[tail];
-      mbxqueue->listhead++;
-      if(mbxqueue->listhead >= EC_MBXPOOLSIZE) mbxqueue->listhead = 0;
-      mbxqueue->listtail++;
-      if(mbxqueue->listtail >= EC_MBXPOOLSIZE) mbxqueue->listtail = 0;
-      retval = 1;
-      osal_mutex_unlock(mbxqueue->mbxmutex);
+      while((cnt < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[cnt] != ticketloc)) cnt++;
+      ticket = cnt;
+      if((ticket >= 0) && (ticket < EC_MBXPOOLSIZE))
+      {
+         mbxqueue->mbxticket[ticket] = head;
+         mbxqueue->mbxremove[head] = mbxqueue->mbxremove[tail];
+         mbxqueue->mbxstate[head] = mbxqueue->mbxstate[tail];
+         mbxqueue->mbxslave[head] = mbxqueue->mbxslave[tail];
+         mbxqueue->mbx[head] = mbxqueue->mbx[tail];
+         mbxqueue->listhead++;
+         if(mbxqueue->listhead >= EC_MBXPOOLSIZE) mbxqueue->listhead = 0;
+         mbxqueue->listtail++;
+         if(mbxqueue->listtail >= EC_MBXPOOLSIZE) mbxqueue->listtail = 0;
+         retval = 1;
+      }
    }
+   else 
+   {
+      retval = 1;
+   }
+   osal_mutex_unlock(mbxqueue->mbxmutex);
    return retval;
 }
 
@@ -1365,9 +1376,9 @@ int ecx_mbxinhandler(ecx_contextt *context, uint8 group, int limit)
 
 int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
 {
-   int cnt, wkc;
+   int wkc;
    int limitcnt = 0;
-   int ticket, ticketloc, state;
+   int ticketloc, state;
    uint16 slave, mbxl, mbxwo, configadr;
    ec_mbxbuft *mbx;
    ec_mbxqueuet *mbxqueue = &(context->grouplist[group].mbxtxqueue);
@@ -1405,10 +1416,7 @@ int ecx_mbxouthandler(ecx_contextt *context, uint8 group, int limit)
             }
             /* fall through */
          case EC_MBXQUEUESTATE_DONE: // mbx tx ok   
-            cnt = 0;
-            while((cnt < EC_MBXPOOLSIZE) && (mbxqueue->mbxticket[cnt] != ticketloc)) cnt++;
-            ticket = cnt;
-            ecx_mbxrotatequeue(context, group, ticket);
+            ecx_mbxrotatequeue(context, group, ticketloc);
             break;
       }
       if(mbxqueue->mbxremove[ticketloc])

@@ -114,33 +114,6 @@ typedef struct
    osal_mutext *mbxmutex;
 } ec_mbxqueuet;
 
-#define VOE_SCOPEMAXCHANNELS    6
-#define EC_MAXSCOPESLAVE        6
-#define EC_SCOPECHANNELS        6
-#define EC_SCOPEBUFFERSIZE      4069
-
-typedef struct
-{
-    int             channels;
-    int             redpos, writepos, counter;
-    double          sampletime;
-    double          fdata[EC_SCOPECHANNELS][EC_SCOPEBUFFERSIZE];
-} ec_ringscopet;
-
-typedef struct
-{
-   uint16         slave;
-   uint16         channel;
-} ec_channelassignt;
-
-typedef struct ec_scope
-{
-   uint16            scopeslave[EC_MAXSCOPESLAVE];
-   int               scopeslavecnt;
-   ec_channelassignt channelassign[EC_SCOPECHANNELS];
-   ec_ringscopet     ringscope;
-} ec_scopet;
-
 #define ECT_MBXPROT_AOE      0x0001
 #define ECT_MBXPROT_EOE      0x0002
 #define ECT_MBXPROT_COE      0x0004
@@ -387,8 +360,6 @@ typedef struct ec_group
    uint16           lastmbxpos;
    /** mailbox  transmit queue struct */
    ec_mbxqueuet     mbxtxqueue; 
-   /** pointer to group scope variables */
-   ec_scopet        *scopevar; 
 } ec_groupt;
 
 /** SII FMMU structure */

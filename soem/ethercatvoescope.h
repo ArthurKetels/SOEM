@@ -18,7 +18,36 @@ extern "C"
 
 #define VOE_SCOPETYPE           0x10
 
-#define SCOPE_BUFSIZE (MBXSIZE - sizeof(_MBXh) - VOE_SCOPEMAXCHANNELS - 12)
+#define VOE_SCOPEMAXCHANNELS    6
+#define EC_MAXSCOPESLAVE        6
+#define EC_SCOPECHANNELS        6
+#define EC_SCOPENAMELENGTH      16
+#define EC_SCOPEBUFFERSIZE      200000
+
+typedef struct ec_ringscopes
+{
+    int             tailpos, headpos, counter;
+    char            name[EC_SCOPENAMELENGTH];
+    double          tailtime, headtime, sampletime;
+    double          fdata[EC_SCOPEBUFFERSIZE];
+} ec_ringscopet;
+
+typedef struct ec_channelassigns
+{
+   uint16         slave;
+   uint16         channel;
+} ec_channelassignt;
+
+typedef struct ec_scopes
+{
+   int               scopeslavecnt;
+   uint16            scopeslave[EC_MAXSCOPESLAVE];
+   int               channelcount;
+   ec_channelassignt channelassign[EC_SCOPECHANNELS];
+   ec_ringscopet     ringscope[EC_SCOPECHANNELS];
+} ec_scopet;
+
+extern ec_scopet               *ec_scopevar;
 
 int ecx_scopeinit(ecx_contextt *context, uint8 group);
 int ecx_scopeclose(ecx_contextt *context, uint8 group);
