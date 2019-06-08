@@ -130,12 +130,22 @@ int ecx_SDOread(ecx_contextt *context, uint16 slave, uint16 index, uint8 subinde
    uint8 cnt, toggle;
    boolean NotLast;
 
+<<<<<<< HEAD
    MbxIn = NULL;
    MbxOut = NULL;
+   /* Empty slave out mailbox if something is in. Timout set to 0 */
    wkc = ecx_mbxreceive2(context, slave, &MbxIn, 0);
    MbxOut = ecx_getmbx(context);
    ec_clearmbx(MbxOut);
    SDOp = (ec_SDOt *)MbxOut;
+=======
+   ec_clearmbx(&MbxIn);
+   /* Empty slave out mailbox if something is in. Timeout set to 0 */
+   wkc = ecx_mbxreceive(context, slave, (ec_mbxbuft *)&MbxIn, 0);
+   ec_clearmbx(&MbxOut);
+   aSDOp = (ec_SDOt *)&MbxIn;
+   SDOp = (ec_SDOt *)&MbxOut;
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
    SDOp->MbxHeader.length = htoes(0x000a);
    SDOp->MbxHeader.address = htoes(0x0000);
    SDOp->MbxHeader.priority = 0x00;
@@ -228,8 +238,14 @@ int ecx_SDOread(ecx_contextt *context, uint16 slave, uint16 index, uint8 subinde
                         SDOp->SubIndex = subindex;
                         SDOp->ldata[0] = 0;
                         /* send segmented upload request to slave */
+<<<<<<< HEAD
                         wkc = ecx_mbxsend(context, slave, MbxOut, EC_TIMEOUTTXM);
                         MbxOut = NULL;
+                        /* is mailbox transfered to slave ? */
+=======
+                        wkc = ecx_mbxsend(context, slave, (ec_mbxbuft *)&MbxOut, EC_TIMEOUTTXM);
+                        /* is mailbox transferred to slave ? */
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
                         if (wkc > 0)
                         {
                            if(MbxIn) ecx_dropmbx(context, MbxIn);
@@ -345,12 +361,22 @@ int ecx_SDOwrite(ecx_contextt *context, uint16 Slave, uint16 Index, uint8 SubInd
    boolean  NotLast;
    uint8 *hp;
 
+<<<<<<< HEAD
    MbxIn = NULL;
    MbxOut = NULL;
+   /* Empty slave out mailbox if something is in. Timout set to 0 */
    wkc = ecx_mbxreceive2(context, Slave, &MbxIn, 0);
    MbxOut = ecx_getmbx(context);
    ec_clearmbx(MbxOut);
    SDOp = (ec_SDOt *)MbxOut;
+=======
+   ec_clearmbx(&MbxIn);
+   /* Empty slave out mailbox if something is in. Timeout set to 0 */
+   wkc = ecx_mbxreceive(context, Slave, (ec_mbxbuft *)&MbxIn, 0);
+   ec_clearmbx(&MbxOut);
+   aSDOp = (ec_SDOt *)&MbxIn;
+   SDOp = (ec_SDOt *)&MbxOut;
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
    maxdata = context->slavelist[Slave].mbx_l - 0x10; /* data section=mailbox size - 6 mbx - 2 CoE - 8 sdo req */
    /* if small data use expedited transfer */
    if ((psize <= 4) && !CA)
@@ -576,13 +602,22 @@ int ecx_RxPDO(ecx_contextt *context, uint16 Slave, uint16 RxPDOnumber, int psize
    uint8 cnt;
    uint16 framedatasize;
 
+<<<<<<< HEAD
    MbxIn = NULL;
    MbxOut = NULL;
+   /* Empty slave out mailbox if something is in. Timout set to 0 */
    wkc = ecx_mbxreceive2(context, Slave, &MbxIn, 0);
    if (MbxIn) ecx_dropmbx(context, MbxIn);  
    MbxOut = ecx_getmbx(context);
    ec_clearmbx(MbxOut);
    SDOp = (ec_SDOt *)MbxOut;
+=======
+   ec_clearmbx(&MbxIn);
+   /* Empty slave out mailbox if something is in. Timeout set to 0 */
+   wkc = ecx_mbxreceive(context, Slave, (ec_mbxbuft *)&MbxIn, 0);
+   ec_clearmbx(&MbxOut);
+   SDOp = (ec_SDOt *)&MbxOut;
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
    maxdata = context->slavelist[Slave].mbx_l - 0x08; /* data section=mailbox size - 6 mbx - 2 CoE */
    framedatasize = psize;
    if (framedatasize > maxdata)
@@ -625,13 +660,23 @@ int ecx_TxPDO(ecx_contextt *context, uint16 Slave, uint16 TxPDOnumber , int *psi
    uint8 cnt;
    uint16 framedatasize;
 
+<<<<<<< HEAD
    MbxIn = NULL;
    MbxOut = NULL;
+   /* Empty slave out mailbox if something is in. Timout set to 0 */
    wkc = ecx_mbxreceive2(context, Slave, &MbxIn, 0);
    if (MbxIn) ecx_dropmbx(context, MbxIn);  
    MbxOut = ecx_getmbx(context);
    ec_clearmbx(MbxOut);
    SDOp = (ec_SDOt *)MbxOut;
+=======
+   ec_clearmbx(&MbxIn);
+   /* Empty slave out mailbox if something is in. Timeout set to 0 */
+   wkc = ecx_mbxreceive(context, slave, (ec_mbxbuft *)&MbxIn, 0);
+   ec_clearmbx(&MbxOut);
+   aSDOp = (ec_SDOt *)&MbxIn;
+   SDOp = (ec_SDOt *)&MbxOut;
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
    SDOp->MbxHeader.length = htoes(0x02);
    SDOp->MbxHeader.address = htoes(0x0000);
    SDOp->MbxHeader.priority = 0x00;

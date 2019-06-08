@@ -614,12 +614,15 @@ int ecx_receive_processdata_group(ecx_contextt *context, uint8 group, int timeou
 int ecx_send_processdata(ecx_contextt *context);
 int ecx_send_overlap_processdata(ecx_contextt *context);
 int ecx_receive_processdata(ecx_contextt *context, int timeout);
-int ecx_send_processdata_group(ecx_contextt *context, uint8 group);
+<<<<<<< HEAD
 ec_mbxbuft *ecx_getmbx(ecx_contextt *context);
 int ecx_dropmbx(ecx_contextt *context, ec_mbxbuft *mbx);
 int ecx_initmbxpool(ecx_contextt *context);
 int ecx_initmbxqueue(ecx_contextt *context, uint16 group);
 int ecx_slavembxcyclic(ecx_contextt *context, uint16 slave);
+=======
+int ecx_send_processdata_group(ecx_contextt *context, uint8 group);
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
 
 #ifdef __cplusplus
 }

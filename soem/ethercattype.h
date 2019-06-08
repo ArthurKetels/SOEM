@@ -23,14 +23,16 @@ extern "C"
 {
 #endif
 
-/** Define Little or Big endian target */
-#define EC_LITTLE_ENDIAN
-
 /** define EC_VER1 if version 1 default context and functions are needed
  * comment if application uses only ecx_ functions and own context */
 #define EC_VER1
 
 #include "osal.h"
+
+/** Define little endian target by default if no endian is set */
+#if !defined(EC_LITTLE_ENDIAN) && !defined(EC_BIG_ENDIAN)
+#   define EC_LITTLE_ENDIAN
+#endif
 
 /** return value general error */
 #define EC_ERROR           -3
@@ -71,6 +73,8 @@ extern "C"
 #define EC_MAXEEPBUF       EC_MAXEEPBITMAP << 5
 /** default number of retries if wkc <= 0 */
 #define EC_DEFAULTRETRIES  3
+/** default group size in 2^x */
+#define EC_LOGGROUPOFFSET 16
 
 /** definition for frame buffers */
 typedef uint8 ec_bufT[EC_BUFSIZE];
@@ -451,16 +455,17 @@ enum
 /** Error types */
 typedef enum
 {
-   EC_ERR_TYPE_SDO_ERROR         = 0,
-   EC_ERR_TYPE_EMERGENCY         = 1,
-   EC_ERR_TYPE_PACKET_ERROR      = 3,
-   EC_ERR_TYPE_SDOINFO_ERROR     = 4,
-   EC_ERR_TYPE_FOE_ERROR         = 5,
-   EC_ERR_TYPE_FOE_BUF2SMALL     = 6,
-   EC_ERR_TYPE_FOE_PACKETNUMBER  = 7,
-   EC_ERR_TYPE_SOE_ERROR         = 8,
-   EC_ERR_TYPE_MBX_ERROR         = 9,
-   EC_ERR_TYPE_FOE_FILE_NOTFOUND = 10
+   EC_ERR_TYPE_SDO_ERROR            = 0,
+   EC_ERR_TYPE_EMERGENCY            = 1,
+   EC_ERR_TYPE_PACKET_ERROR         = 3,
+   EC_ERR_TYPE_SDOINFO_ERROR        = 4,
+   EC_ERR_TYPE_FOE_ERROR            = 5,
+   EC_ERR_TYPE_FOE_BUF2SMALL        = 6,
+   EC_ERR_TYPE_FOE_PACKETNUMBER     = 7,
+   EC_ERR_TYPE_SOE_ERROR            = 8,
+   EC_ERR_TYPE_MBX_ERROR            = 9,
+   EC_ERR_TYPE_FOE_FILE_NOTFOUND    = 10,
+   EC_ERR_TYPE_EOE_INVALID_RX_DATA  = 11
 } ec_err_type;
 
 /** Struct to retrieve errors. */

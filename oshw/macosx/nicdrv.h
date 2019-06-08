@@ -16,10 +16,7 @@ extern "C"
 {
 #endif
 
-#define HAVE_REMOTE
-
-#include <pcap.h>
-#include <Packet32.h>
+#include <pcap/pcap.h>
 
 /** pointer structure to Tx and Rx stacks */
 typedef struct
@@ -72,7 +69,7 @@ typedef struct
    int tempinbufs;
    /** transmit buffers */
    ec_bufT txbuf[EC_MAXBUF];
-   /** transmit buffer lengths */
+   /** transmit buffer lenghts */
    int txbuflength[EC_MAXBUF];
    /** temporary tx buffer */
    ec_bufT txbuf2;
@@ -84,9 +81,9 @@ typedef struct
    int redstate;
    /** pointer to redundancy port and buffers */
    ecx_redportt *redport;
-   CRITICAL_SECTION getindex_mutex;
-   CRITICAL_SECTION tx_mutex;
-   CRITICAL_SECTION rx_mutex;
+   pthread_mutex_t getindex_mutex;
+   pthread_mutex_t tx_mutex;
+   pthread_mutex_t rx_mutex;
 } ecx_portt;
 
 extern const uint16 priMAC[3];

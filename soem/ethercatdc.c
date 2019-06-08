@@ -56,7 +56,7 @@ void ecx_dcsync0(ecx_contextt *context, uint16 slave, boolean act, uint32 CyclTi
 
    /* Calculate first trigger time, always a whole multiple of CyclTime rounded up
    plus the shifttime (can be negative)
-   This insures best sychronisation between slaves, slaves with the same CyclTime
+   This insures best synchronization between slaves, slaves with the same CyclTime
    will sync at the same moment (you can use CyclShift to shift the sync) */
    if (CyclTime > 0)
    {
@@ -119,7 +119,7 @@ void ecx_dcsync01(ecx_contextt *context, uint16 slave, boolean act, uint32 CyclT
 
    /* Calculate first trigger time, always a whole multiple of TrueCyclTime rounded up
    plus the shifttime (can be negative)
-   This insures best sychronisation between slaves, slaves with the same CyclTime
+   This insures best synchronization between slaves, slaves with the same CyclTime
    will sync at the same moment (you can use CyclShift to shift the sync) */
    if (CyclTime0 > 0)
    {
@@ -281,8 +281,8 @@ boolean ecx_configdc(ecx_contextt *context)
             context->slavelist[0].hasdc = TRUE;
             context->slavelist[0].DCnext = i;
             context->slavelist[i].DCprevious = 0;
-            context->grouplist[0].hasdc = TRUE;
-            context->grouplist[0].DCnext = i;
+            context->grouplist[context->slavelist[i].group].hasdc = TRUE;
+            context->grouplist[context->slavelist[i].group].DCnext = i;
          }
          else
          {

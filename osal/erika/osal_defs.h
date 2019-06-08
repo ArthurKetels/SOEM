@@ -11,11 +11,15 @@ extern "C"
 {
 #endif
 
-// define if debug printf is needed
-//#define EC_DEBUG
+#include <sys/time.h>
+#include <stdlib.h>
+#include <ee.h>
+
+// define if debug print is needed
+#define EC_DEBUG
 
 #ifdef EC_DEBUG
-#define EC_PRINT printf
+#define EC_PRINT OSEE_PRINT
 #else
 #define EC_PRINT(...) do {} while (0)
 #endif
@@ -26,9 +30,9 @@ extern "C"
 #define PACKED_END
 #endif
 
-#define OSAL_THREAD_HANDLE task_t *
-#define OSAL_THREAD_FUNC void
-#define OSAL_THREAD_FUNC_RT void
+int osal_gettimeofday(struct timeval *tv, struct timezone *tz);
+void *osal_malloc(size_t size);
+void osal_free(void *ptr);
 
 #ifdef __cplusplus
 }

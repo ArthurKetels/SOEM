@@ -120,9 +120,13 @@ ecx_contextt  ecx_context = {
     &ec_PDOdesc[0],     // .PDOdesc       =
     &ec_SM,             // .eepSM         =
     &ec_FMMU,           // .eepFMMU       =
+<<<<<<< HEAD
     &ec_mbxpool,        // .mbxpool       =
+    NULL                // .FOEhook()
+=======
     NULL,               // .FOEhook()
     NULL                // .EOEhook()
+>>>>>>> 812403783c893f64b846a967bcaa5df9a51c71d8
 };
 #endif
 
