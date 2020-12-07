@@ -142,7 +142,7 @@ int ecx_SDOread(ecx_contextt *context, uint16 slave, uint16 index, uint8 subinde
    /* get new mailbox count value, used as session handle */
    cnt = ec_nextmbxcnt(context->slavelist[slave].mbx_cnt);
    context->slavelist[slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOREQ << 12)); /* number 9bits service upper 4 bits (SDO request) */
    if (CA)
    {
@@ -221,7 +221,7 @@ int ecx_SDOread(ecx_contextt *context, uint16 slave, uint16 index, uint8 subinde
                         SDOp->MbxHeader.priority = 0x00;
                         cnt = ec_nextmbxcnt(context->slavelist[slave].mbx_cnt);
                         context->slavelist[slave].mbx_cnt = cnt;
-                        SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+                        SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
                         SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOREQ << 12)); /* number 9bits service upper 4 bits (SDO request) */
                         SDOp->Command = ECT_SDO_SEG_UP_REQ + toggle; /* segment upload request */
                         SDOp->Index = htoes(index);
@@ -361,7 +361,7 @@ int ecx_SDOwrite(ecx_contextt *context, uint16 Slave, uint16 Index, uint8 SubInd
       /* get new mailbox counter, used for session handle */
       cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
       context->slavelist[Slave].mbx_cnt = cnt;
-      SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+      SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
       SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOREQ << 12)); /* number 9bits service upper 4 bits */
       SDOp->Command = ECT_SDO_DOWN_EXP | (((4 - psize) << 2) & 0x0c); /* expedited SDO download transfer */
       SDOp->Index = htoes(Index);
@@ -414,13 +414,13 @@ int ecx_SDOwrite(ecx_contextt *context, uint16 Slave, uint16 Index, uint8 SubInd
          framedatasize = maxdata;  /*  segmented transfer needed  */
          NotLast = TRUE;
       }
-      SDOp->MbxHeader.length = htoes(0x0a + framedatasize);
+      SDOp->MbxHeader.length = htoes((uint16)(0x0a + framedatasize));
       SDOp->MbxHeader.address = htoes(0x0000);
       SDOp->MbxHeader.priority = 0x00;
       /* get new mailbox counter, used for session handle */
       cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
       context->slavelist[Slave].mbx_cnt = cnt;
-      SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+      SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
       SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOREQ << 12)); /* number 9bits service upper 4 bits */
       if (CA)
       {
@@ -481,18 +481,18 @@ int ecx_SDOwrite(ecx_contextt *context, uint16 Slave, uint16 Index, uint8 SubInd
                   if (!NotLast && (framedatasize < 7))
                   {
                      SDOp->MbxHeader.length = htoes(0x0a); /* minimum size */
-                     SDOp->Command = 0x01 + ((7 - framedatasize) << 1); /* last segment reduced octets */
+                     SDOp->Command = (uint8)(0x01 + ((7 - framedatasize) << 1)); /* last segment reduced octets */
                   }
                   else
                   {
-                     SDOp->MbxHeader.length = htoes(framedatasize + 3); /* data + 2 CoE + 1 SDO */
+                     SDOp->MbxHeader.length = htoes((uint16)(framedatasize + 3)); /* data + 2 CoE + 1 SDO */
                   }
                   SDOp->MbxHeader.address = htoes(0x0000);
                   SDOp->MbxHeader.priority = 0x00;
                   /* get new mailbox counter value */
                   cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
                   context->slavelist[Slave].mbx_cnt = cnt;
-                  SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+                  SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
                   SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOREQ << 12)); /* number 9bits service upper 4 bits (SDO request) */
                   SDOp->Command = SDOp->Command + toggle; /* add toggle bit to command byte */
                   /* copy parameter data to mailbox */
@@ -571,6 +571,7 @@ int ecx_SDOwrite(ecx_contextt *context, uint16 Slave, uint16 Index, uint8 SubInd
 int ecx_RxPDO(ecx_contextt *context, uint16 Slave, uint16 RxPDOnumber, int psize, void *p)
 {
    ec_SDOt *SDOp;
+   int wkc, maxdata, framedatasize;
    int wkc, maxdata;
    ec_mbxbuft *MbxIn, *MbxOut;
    uint8 cnt;
@@ -589,13 +590,13 @@ int ecx_RxPDO(ecx_contextt *context, uint16 Slave, uint16 RxPDOnumber, int psize
    {
       framedatasize = maxdata;  /*  limit transfer */
    }
-   SDOp->MbxHeader.length = htoes(0x02 + framedatasize);
+   SDOp->MbxHeader.length = htoes((uint16)(0x02 + framedatasize));
    SDOp->MbxHeader.address = htoes(0x0000);
    SDOp->MbxHeader.priority = 0x00;
    /* get new mailbox counter, used for session handle */
    cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
    context->slavelist[Slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes((RxPDOnumber & 0x01ff) + (ECT_COES_RXPDO << 12)); /* number 9bits service upper 4 bits */
    /* copy PDO data to mailbox */
    memcpy(&SDOp->Command, p, framedatasize);
@@ -638,7 +639,7 @@ int ecx_TxPDO(ecx_contextt *context, uint16 Slave, uint16 TxPDOnumber , int *psi
    /* get new mailbox counter, used for session handle */
    cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
    context->slavelist[Slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes((TxPDOnumber & 0x01ff) + (ECT_COES_TXPDO_RR << 12)); /* number 9bits service upper 4 bits */
    wkc = ecx_mbxsend(context, Slave, MbxOut, EC_TIMEOUTTXM);
    MbxOut = NULL;
@@ -697,12 +698,13 @@ int ecx_TxPDO(ecx_contextt *context, uint16 Slave, uint16 TxPDOnumber , int *psi
  * @param[in]  PDOassign     = PDO assign object
  * @return total bitlength of PDO assign
  */
-int ecx_readPDOassign(ecx_contextt *context, uint16 Slave, uint16 PDOassign)
+uint32 ecx_readPDOassign(ecx_contextt *context, uint16 Slave, uint16 PDOassign)
 {
    uint16 idxloop, nidx, subidxloop, rdat, idx, subidx;
    uint8 subcnt;
-   int wkc, bsize = 0, rdl;
+   int wkc, rdl;
    int32 rdat2;
+   uint32 bsize = 0;
 
    rdl = sizeof(rdat); rdat = 0;
    /* read PDO assign subindex 0 ( = number of PDO's) */
@@ -762,11 +764,12 @@ int ecx_readPDOassign(ecx_contextt *context, uint16 Slave, uint16 PDOassign)
  * @param[in]  PDOassign     = PDO assign object
  * @return total bitlength of PDO assign
  */
-int ecx_readPDOassignCA(ecx_contextt *context, uint16 Slave, int Thread_n,
+uint32 ecx_readPDOassignCA(ecx_contextt *context, uint16 Slave, int Thread_n,
       uint16 PDOassign)
 {
    uint16 idxloop, nidx, subidxloop, idx, subidx;
-   int wkc, bsize = 0, rdl;
+   int wkc, rdl;
+   uint32 bsize = 0;
 
    /* find maximum size of PDOassign buffer */
    rdl = sizeof(ec_PDOassignt);
@@ -832,12 +835,12 @@ int ecx_readPDOassignCA(ecx_contextt *context, uint16 Slave, int Thread_n,
  * @param[out] Isize   = Size in bits of input mapping (txPDO) found
  * @return >0 if mapping successful.
  */
-int ecx_readPDOmap(ecx_contextt *context, uint16 Slave, int *Osize, int *Isize)
+int ecx_readPDOmap(ecx_contextt *context, uint16 Slave, uint32 *Osize, uint32 *Isize)
 {
    int wkc, rdl;
    int retVal = 0;
    uint8 nSM, iSM, tSM;
-   int Tsize;
+   uint32 Tsize;
    uint8 SMt_bug_add;
 
    *Isize = 0;
@@ -893,7 +896,7 @@ int ecx_readPDOmap(ecx_contextt *context, uint16 Slave, int *Osize, int *Isize)
                /* if a mapping is found */
                if (Tsize)
                {
-                  context->slavelist[Slave].SM[iSM].SMlength = htoes((Tsize + 7) / 8);
+                  context->slavelist[Slave].SM[iSM].SMlength = htoes((uint16)((Tsize + 7) / 8));
                   if (tSM == 3)
                   {
                      /* we are doing outputs */
@@ -932,12 +935,12 @@ int ecx_readPDOmap(ecx_contextt *context, uint16 Slave, int *Osize, int *Isize)
  * @param[out] Isize    = Size in bits of input mapping (txPDO) found
  * @return >0 if mapping successful.
  */
-int ecx_readPDOmapCA(ecx_contextt *context, uint16 Slave, int Thread_n, int *Osize, int *Isize)
+int ecx_readPDOmapCA(ecx_contextt *context, uint16 Slave, int Thread_n, uint32 *Osize, uint32 *Isize)
 {
    int wkc, rdl;
    int retVal = 0;
    uint8 nSM, iSM, tSM;
-   int Tsize;
+   uint32 Tsize;
    uint8 SMt_bug_add;
 
    *Isize = 0;
@@ -989,7 +992,7 @@ int ecx_readPDOmapCA(ecx_contextt *context, uint16 Slave, int Thread_n, int *Osi
             /* if a mapping is found */
             if (Tsize)
             {
-               context->slavelist[Slave].SM[iSM].SMlength = htoes((Tsize + 7) / 8);
+               context->slavelist[Slave].SM[iSM].SMlength = htoes((uint16)((Tsize + 7) / 8));
                if (tSM == 3)
                {
                   /* we are doing outputs */
@@ -1046,7 +1049,7 @@ int ecx_readODlist(ecx_contextt *context, uint16 Slave, ec_ODlistt *pODlist)
    /* Get new mailbox counter value */
    cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
    context->slavelist[Slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOINFO << 12)); /* number 9bits service upper 4 bits */
    SDOp->Opcode = ECT_GET_ODLIST_REQ; /* get object description list request */
    SDOp->Reserved = 0;
@@ -1173,7 +1176,7 @@ int ecx_readODdescription(ecx_contextt *context, uint16 Item, ec_ODlistt *pODlis
    /* Get new mailbox counter value */
    cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
    context->slavelist[Slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOINFO << 12)); /* number 9bits service upper 4 bits */
    SDOp->Opcode = ECT_GET_OD_REQ; /* get object description request */
    SDOp->Reserved = 0;
@@ -1264,7 +1267,7 @@ int ecx_readOEsingle(ecx_contextt *context, uint16 Item, uint8 SubI, ec_ODlistt 
    /* Get new mailbox counter value */
    cnt = ec_nextmbxcnt(context->slavelist[Slave].mbx_cnt);
    context->slavelist[Slave].mbx_cnt = cnt;
-   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + (cnt << 4); /* CoE */
+   SDOp->MbxHeader.mbxtype = ECT_MBXT_COE + MBX_HDR_SET_CNT(cnt); /* CoE */
    SDOp->CANOpen = htoes(0x000 + (ECT_COES_SDOINFO << 12)); /* number 9bits service upper 4 bits */
    SDOp->Opcode = ECT_GET_OE_REQ; /* get object entry description request */
    SDOp->Reserved = 0;
@@ -1452,7 +1455,7 @@ int ec_TxPDO(uint16 slave, uint16 TxPDOnumber , int *psize, void *p, int timeout
  * @param[in]  PDOassign     = PDO assign object
  * @return total bitlength of PDO assign
  */
-int ec_readPDOassign(uint16 Slave, uint16 PDOassign)
+uint32 ec_readPDOassign(uint16 Slave, uint16 PDOassign)
 {
    return ecx_readPDOassign(&ecx_context, Slave, PDOassign);
 }
@@ -1464,7 +1467,7 @@ int ec_readPDOassign(uint16 Slave, uint16 PDOassign)
  * @return total bitlength of PDO assign
  * @see ecx_readPDOmap
  */
-int ec_readPDOassignCA(uint16 Slave, uint16 PDOassign, int Thread_n)
+uint32 ec_readPDOassignCA(uint16 Slave, uint16 PDOassign, int Thread_n)
 {
    return ecx_readPDOassignCA(&ecx_context, Slave, Thread_n, PDOassign);
 }
@@ -1482,7 +1485,7 @@ int ec_readPDOassignCA(uint16 Slave, uint16 PDOassign, int Thread_n)
  * @param[out] Isize   = Size in bits of input mapping (txPDO) found
  * @return >0 if mapping succesful.
  */
-int ec_readPDOmap(uint16 Slave, int *Osize, int *Isize)
+int ec_readPDOmap(uint16 Slave, uint32 *Osize, uint32 *Isize)
 {
    return ecx_readPDOmap(&ecx_context, Slave, Osize, Isize);
 }
@@ -1500,7 +1503,7 @@ int ec_readPDOmap(uint16 Slave, int *Osize, int *Isize)
  * @return >0 if mapping succesful.
  * @see ecx_readPDOmap ec_readPDOmapCA
  */
-int ec_readPDOmapCA(uint16 Slave, int Thread_n, int *Osize, int *Isize)
+int ec_readPDOmapCA(uint16 Slave, int Thread_n, uint32 *Osize, uint32 *Isize)
 {
    return ecx_readPDOmapCA(&ecx_context, Slave, Thread_n, Osize, Isize);
 }
